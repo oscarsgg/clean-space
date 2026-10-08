@@ -3,8 +3,8 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Custodia | Control de acceso y monitoreo ambiental',
-  description: 'Plataforma de operación para cuartos limpios: control de acceso, monitoreo ambiental y avisos accionables.',
+title: 'Custodia | La calma detrás de cada espacio crítico',
+description: 'Custodia centraliza el acceso, el ambiente y la trazabilidad de tus cuartos limpios en una sola operación.',
   generator: 'Custodia',
   icons: {
     icon: [
