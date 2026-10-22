@@ -3,7 +3,7 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-title: 'Custodia | La calma detrás de cada espacio crítico',
+title: { default: 'Custodia · Operación bajo control', template: '%s · Custodia' },
 description: 'Custodia centraliza el acceso, el ambiente y la trazabilidad de tus cuartos limpios en una sola operación.',
   generator: 'Custodia',
   icons: {
