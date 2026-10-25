@@ -1,5 +1,5 @@
-import CustodiaApp from '@/components/custodia-app'
+import CleanSpaceApp from '@/components/custodia-app'
 
 export default function AdminPortal() {
-  return <CustodiaApp />
+  return <CleanSpaceApp />
 }

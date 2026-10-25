@@ -3,9 +3,9 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-title: { default: 'Custodia · Operación bajo control', template: '%s · Custodia' },
-description: 'Custodia centraliza el acceso, el ambiente y la trazabilidad de tus cuartos limpios en una sola operación.',
-  generator: 'Custodia',
+title: { default: 'CleanSpace · Operación bajo control', template: '%s · CleanSpace' },
+description: 'CleanSpace centraliza el acceso, el ambiente y la trazabilidad de tus cuartos limpios en una sola operación.',
+  generator: 'CleanSpace',
   icons: {
     icon: [
       {
