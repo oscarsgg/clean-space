@@ -1,5 +1,5 @@
-import { AccessPage } from '@/components/custodia-app'
+import { redirect } from 'next/navigation'
 
 export default function AccessRoute() {
-  return <AccessPage />
+  redirect('/acceso/cuarto-01')
 }
