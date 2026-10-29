@@ -154,6 +154,14 @@
   }
 }
 
+.dark body {
+  background: oklch(0.145 0 0);
+}
+
+.dark .bg-white {
+  background-color: oklch(0.205 0 0);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
