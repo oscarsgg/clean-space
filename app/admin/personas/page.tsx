@@ -1,2 +1,6 @@
 import CleanSpacePortal from '@/components/cleanspace-portal'
-export default function PersonasPage() { return <CleanSpacePortal role="admin" /> }
+import { LivePersonas } from '@/components/live-personas'
+
+export default function PersonasPage() {
+  return <><CleanSpacePortal role="admin" /><LivePersonas /></>
+}
