@@ -4,7 +4,7 @@ import './globals.css'
 
 export const metadata: Metadata = {
 title: { default: 'CleanSpace · Operación bajo control', template: '%s · CleanSpace' },
-description: 'CleanSpace centraliza el acceso, el ambiente y la trazabilidad de tus cuartos limpios en una sola operación.',
+description: 'CleanSpace conecta acceso, ambiente y trazabilidad para que los equipos de cuartos limpios operen con claridad y confianza.',
   generator: 'CleanSpace',
   icons: {
     icon: [
