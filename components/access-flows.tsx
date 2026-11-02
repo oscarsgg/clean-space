@@ -8,7 +8,7 @@ import { api, saveSession } from '@/lib/api'
 import { ArrowRight, Check, CreditCard, LockKeyhole, Mail, ShieldCheck, UserRound } from 'lucide-react'
 
 function Brand() {
-  return <Link href="/" className="flex items-center gap-3"><div className="flex size-10 items-center justify-center overflow-hidden rounded-xl bg-[#dff8f5]"><img src="/custodia-logo.png" alt="Símbolo de CleanSpace" className="size-full object-cover" /></div><div><div className="font-serif text-[19px] font-semibold tracking-[-0.03em] text-[#102d3b]">CleanSpace</div><div className="text-[9px] font-semibold uppercase tracking-[0.24em] text-[#77909b]">operación crítica</div></div></Link>
+  return <Link href="/" className="flex items-center gap-3"><div className="flex size-10 items-center justify-center overflow-hidden rounded-xl bg-[#dff8f5]"><img src="/custodia-logo.png" alt="Símbolo de CleanSpace" className="size-full object-cover" /></div><div><div className="font-serif text-[19px] font-semibold tracking-[-0.03em] text-[#102d3b]">CleanSpace</div><div className="text-[9px] font-semibold uppercase tracking-[0.24em] text-[#77909b]">CleanSpace</div></div></Link>
 }
 
 function Shell({ children, eyebrow }: { children: React.ReactNode; eyebrow: string }) {

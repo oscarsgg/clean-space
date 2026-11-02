@@ -14,10 +14,10 @@ export function CleanSpaceLanding() {
   const [menuOpen, setMenuOpen] = useState(false)
   return (
     <div className="min-h-screen bg-[#f4f6f5] text-[#17313b]">
-      <header className="relative z-20 mx-auto flex max-w-[1440px] items-center justify-between px-6 py-6 lg:px-14 lg:py-8">
+      <header className="sticky top-0 z-50 mx-auto flex max-w-[1440px] items-center justify-between border-b border-[#dce7e4]/80 bg-[#f4f6f5]/90 px-6 py-4 backdrop-blur-xl lg:px-14 lg:py-5">
         <Link href="/" className="flex items-center gap-3" aria-label="CleanSpace, inicio">
-          <img src="/custodia-logo.png" alt="CleanSpace" className="h-10 w-auto object-contain" />
-          <span className="hidden border-l border-[#c7d4d3] pl-3 text-[9px] font-semibold uppercase tracking-[0.18em] text-[#6a7f83] sm:block">operación crítica</span>
+          <span className="flex size-11 items-center justify-center overflow-hidden rounded-2xl border border-[#c7d4d3] bg-[#dff1ef] shadow-sm"><img src="/custodia-logo.png" alt="CleanSpace" className="size-full object-cover" /></span>
+          <span className="text-sm font-semibold tracking-[-0.02em] text-[#17313b]">CleanSpace</span>
         </Link>
         <nav className="hidden items-center gap-9 text-sm font-medium text-[#587078] lg:flex"><a href="#plataforma" className="text-[#17313b]">Plataforma</a><a href="#metodo" className="hover:text-[#3f8580]">Cómo funciona</a><a href="#confianza" className="hover:text-[#3f8580]">Confianza</a></nav>
         <div className="hidden items-center gap-3 sm:flex"><Link href="/login" className="rounded-full px-4 py-2.5 text-sm font-semibold text-[#3f8580] hover:bg-white">Ingresar</Link><Link href="/login" className="rounded-full bg-[#17313b] px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-[#17313b]/15">Comenzar</Link></div>
@@ -35,7 +35,7 @@ export function CleanSpaceLanding() {
               <div className="mt-9 flex flex-wrap items-center gap-4"><Link href="/login" className="flex items-center gap-3 rounded-full bg-[#17313b] px-6 py-3.5 text-sm font-semibold text-white transition-transform hover:-translate-y-0.5">Entrar a CleanSpace <ArrowUpRight className="size-4" /></Link><a href="#plataforma" className="text-sm font-semibold text-[#3f8580]">Conocer la plataforma</a></div>
               <div className="mt-10 flex items-center gap-2 text-xs font-medium text-[#70858a]"><Check className="size-4 text-[#3f8580]" /> Diseñado para equipos que no pueden improvisar</div>
             </div>
-            <div className="relative min-h-[410px] overflow-hidden lg:min-h-[620px]"><img src="/images/cleanspace-hero-professional.png" alt="Supervisora en un entorno de cuarto limpio" className="absolute inset-0 size-full object-cover" /><div className="absolute inset-0 bg-gradient-to-r from-[#17313b]/20 via-transparent to-[#17313b]/10" /><div className="absolute bottom-6 left-6 right-6 flex items-end justify-between gap-4 sm:bottom-10 sm:left-10 sm:right-10"><div className="rounded-2xl border border-white/30 bg-[#17313b]/75 px-4 py-3 text-white backdrop-blur-md"><div className="flex items-center gap-2 text-xs font-semibold"><span className="size-2 rounded-full bg-[#9bd3c7]" /> Operación conectada</div><p className="mt-1 text-[11px] text-white/70">Una vista compartida para el equipo</p></div><div className="hidden size-16 items-center justify-center rounded-full border border-white/50 bg-white/15 text-white backdrop-blur-md sm:flex"><ArrowUpRight className="size-5" /></div></div></div>
+            <div className="relative min-h-[410px] overflow-hidden lg:min-h-[620px]"><img src="/images/cleanspace-hero-wide.png" alt="Supervisora en un entorno de cuarto limpio" className="absolute inset-0 size-full object-cover" /><div className="absolute inset-0 bg-gradient-to-r from-[#17313b]/20 via-transparent to-[#17313b]/10" /><div className="absolute bottom-6 left-6 right-6 flex items-end justify-between gap-4 sm:bottom-10 sm:left-10 sm:right-10"><div className="rounded-2xl border border-white/30 bg-[#17313b]/75 px-4 py-3 text-white backdrop-blur-md"><div className="flex items-center gap-2 text-xs font-semibold"><span className="size-2 rounded-full bg-[#9bd3c7]" /> Operación conectada</div><p className="mt-1 text-[11px] text-white/70">Claridad para cada turno</p></div><div className="hidden size-16 items-center justify-center rounded-full border border-white/50 bg-white/15 text-white backdrop-blur-md sm:flex"><ArrowUpRight className="size-5" /></div></div></div>
           </div>
         </section>
 
@@ -45,7 +45,7 @@ export function CleanSpaceLanding() {
 
         <section id="confianza" className="bg-[#17313b] px-6 py-20 text-white lg:px-14 lg:py-24"><div className="mx-auto flex max-w-[1280px] flex-col justify-between gap-8 md:flex-row md:items-end"><div><p className="text-sm font-semibold text-[#9bd3c7]">CleanSpace</p><h2 className="mt-4 max-w-2xl text-4xl font-semibold leading-tight tracking-[-0.05em] sm:text-5xl">La tranquilidad de saber qué está pasando.</h2></div><Link href="/login" className="flex w-fit items-center gap-3 rounded-full bg-[#e5eeed] px-6 py-3.5 text-sm font-semibold text-[#17313b]">Ingresar a CleanSpace <ArrowUpRight className="size-4" /></Link></div></section>
       </main>
-      <footer className="bg-[#17313b] px-6 pb-8 text-xs text-white/50 lg:px-14"><div className="mx-auto flex max-w-[1280px] justify-between border-t border-white/10 pt-6"><span>© 2026 CleanSpace</span><span>Operación crítica, con claridad.</span></div></footer>
+      <footer className="bg-[#17313b] px-6 pb-8 text-xs text-white/50 lg:px-14"><div className="mx-auto flex max-w-[1280px] justify-between border-t border-white/10 pt-6"><span>© 2026 CleanSpace</span><span>CleanSpace · claridad operativa.</span></div></footer>
     </div>
   )
 }
