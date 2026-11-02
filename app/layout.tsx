@@ -1,4 +1,5 @@
 import { Analytics } from '@vercel/analytics/next'
+import { Manrope } from 'next/font/google'
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
@@ -25,6 +26,8 @@ description: 'CleanSpace conecta acceso, ambiente y trazabilidad para que los eq
   },
 }
 
+const manrope = Manrope({ subsets: ['latin'], variable: '--font-manrope' })
+
 export const viewport: Viewport = {
   colorScheme: 'light dark',
   themeColor: [
@@ -40,7 +43,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="es">
-      <body className="antialiased">
+      <body className={`${manrope.variable} antialiased [font-family:var(--font-manrope)]`}>
         {children}
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
