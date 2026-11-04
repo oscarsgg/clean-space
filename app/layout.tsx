@@ -8,21 +8,8 @@ title: { default: 'CleanSpace · Operación bajo control', template: '%s · Clea
 description: 'CleanSpace conecta acceso, ambiente y trazabilidad para que los equipos de cuartos limpios operen con claridad y confianza.',
   generator: 'CleanSpace',
   icons: {
-    icon: [
-      {
-        url: '/icon-light-32x32.png',
-        media: '(prefers-color-scheme: light)',
-      },
-      {
-        url: '/icon-dark-32x32.png',
-        media: '(prefers-color-scheme: dark)',
-      },
-      {
-        url: '/icon.svg',
-        type: 'image/svg+xml',
-      },
-    ],
-    apple: '/apple-icon.png',
+    icon: '/custodia-logo-web.png',
+    apple: '/custodia-logo-web.png',
   },
 }
 

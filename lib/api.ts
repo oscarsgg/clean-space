@@ -18,38 +18,192 @@ export type ApiPerson = {
   [key: string]: unknown
 }
 
-function getAccessToken() {
+const ACCESS_TOKEN_COOKIE = 'cleanspace_access_token'
+const REFRESH_TOKEN_COOKIE = 'cleanspace_refresh_token'
+const SESSION_EXPIRED_MESSAGE = 'Tu sesión expiró. Inicia sesión nuevamente.'
+
+function getCookie(name: string) {
+  if (typeof document === 'undefined') return null
+  const cookie = document.cookie
+    .split('; ')
+    .find((entry) => entry.startsWith(`${name}=`))
+  return cookie ? decodeURIComponent(cookie.slice(name.length + 1)) : null
+}
+
+function setCookie(name: string, value: string, maxAge = 60 * 60 * 24 * 7) {
+  if (typeof document === 'undefined') return
+  const secure = window.location.protocol === 'https:' ? '; Secure' : ''
+  document.cookie = `${name}=${encodeURIComponent(value)}; path=/; max-age=${maxAge}; SameSite=Lax${secure}`
+}
+
+function deleteCookie(name: string) {
+  if (typeof document === 'undefined') return
+  document.cookie = `${name}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; max-age=0`
+}
+
+function getRefreshToken() {
   if (typeof window === 'undefined') return null
-  return window.localStorage.getItem('cleanspace_access_token')
+  return getCookie(REFRESH_TOKEN_COOKIE) ?? window.localStorage.getItem(REFRESH_TOKEN_COOKIE)
+}
+
+export function getAccessToken() {
+  if (typeof window === 'undefined') return null
+  return getCookie(ACCESS_TOKEN_COOKIE) ?? window.localStorage.getItem(ACCESS_TOKEN_COOKIE)
+}
+
+export function redirectToLogin(message = SESSION_EXPIRED_MESSAGE) {
+  if (typeof window === 'undefined') return
+  clearSession()
+  if (typeof window.sessionStorage !== 'undefined') {
+    window.sessionStorage.setItem('auth_session_message', message)
+  }
+  window.location.assign('/login')
+}
+
+export function decodeJwtPayload(token: string | null): Record<string, unknown> | null {
+  if (!token) return null
+  const parts = token.split('.')
+  if (parts.length < 2) return null
+  try {
+    const payload = parts[1].replace(/-/g, '+').replace(/_/g, '/')
+    const padded = payload.padEnd(Math.ceil(payload.length / 4) * 4, '=')
+    const json = decodeURIComponent(
+      atob(padded)
+        .split('')
+        .map((char) => `%${(`00${char.charCodeAt(0).toString(16)}`).slice(-2)}`)
+        .join(''),
+    )
+    return JSON.parse(json) as Record<string, unknown>
+  } catch {
+    return null
+  }
+}
+
+export function getJwtExpiration(token: string | null): number | null {
+  const payload = decodeJwtPayload(token)
+  const exp = payload?.exp
+  if (typeof exp === 'number') return exp
+  if (typeof exp === 'string') {
+    const parsed = Number(exp)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  return null
+}
+
+export function hasValidAccessToken(token: string | null = getAccessToken()) {
+  if (!token) return false
+  const exp = getJwtExpiration(token)
+  if (exp === null) return true
+  return Date.now() / 1000 < exp - 30
+}
+
+export function getCurrentUserFromToken() {
+  return decodeJwtPayload(getAccessToken())
 }
 
 export function saveSession(session: AuthSession) {
-  window.localStorage.setItem('cleanspace_access_token', session.access_token)
-  if (session.refresh_token) window.localStorage.setItem('cleanspace_refresh_token', session.refresh_token)
+  const accessToken = session.access_token
+  const expiresIn = Math.max(60, session.expires_in ?? 60 * 60 * 24 * 7)
+  setCookie(ACCESS_TOKEN_COOKIE, accessToken, expiresIn)
+  if (session.refresh_token) setCookie(REFRESH_TOKEN_COOKIE, session.refresh_token, 60 * 60 * 24 * 30)
+  if (typeof window !== 'undefined') {
+    window.localStorage.setItem(ACCESS_TOKEN_COOKIE, accessToken)
+    if (session.refresh_token) window.localStorage.setItem(REFRESH_TOKEN_COOKIE, session.refresh_token)
+  }
 }
 
 export function clearSession() {
-  window.localStorage.removeItem('cleanspace_access_token')
-  window.localStorage.removeItem('cleanspace_refresh_token')
+  deleteCookie(ACCESS_TOKEN_COOKIE)
+  deleteCookie(REFRESH_TOKEN_COOKIE)
+  if (typeof window !== 'undefined') {
+    window.localStorage.removeItem(ACCESS_TOKEN_COOKIE)
+    window.localStorage.removeItem(REFRESH_TOKEN_COOKIE)
+  }
+}
+
+async function refreshAccessToken(): Promise<string | null> {
+  const refreshToken = getRefreshToken()
+  if (!refreshToken) return null
+
+  try {
+    const refreshed = await fetch(`${API_BASE_URL}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    })
+
+    if (!refreshed.ok) return null
+
+    const payload = (await refreshed.json()) as AuthSession
+    if (!payload.access_token) return null
+
+    saveSession(payload)
+    return payload.access_token
+  } catch {
+    return null
+  }
 }
 
 async function request<T>(path: string, init: RequestInit = {}, retry = true): Promise<T> {
   const headers = new Headers(init.headers)
   headers.set('Content-Type', 'application/json')
-  const token = getAccessToken()
-  if (token) headers.set('Authorization', `Bearer ${token}`)
-  const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers })
-  if (response.status === 401 && retry && typeof window !== 'undefined') {
-    const refreshToken = window.localStorage.getItem('cleanspace_refresh_token')
-    if (refreshToken) {
-      const refreshed = await fetch(`${API_BASE_URL}/auth/refresh`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refresh_token: refreshToken }) })
-      if (refreshed.ok) { saveSession(await refreshed.json()); return request<T>(path, init, false) }
+
+  const isPublicAuthRequest = path === '/auth/login' || path === '/auth/refresh'
+
+  if (!isPublicAuthRequest) {
+    let token = getAccessToken()
+    if (!token) {
+      if (typeof window !== 'undefined') redirectToLogin()
+      throw new Error(SESSION_EXPIRED_MESSAGE)
     }
-    clearSession()
-    window.location.assign('/login')
+
+    if (!hasValidAccessToken(token)) {
+      const refreshedToken = await refreshAccessToken()
+      if (!refreshedToken) {
+        if (typeof window !== 'undefined') redirectToLogin()
+        throw new Error(SESSION_EXPIRED_MESSAGE)
+      }
+      token = refreshedToken
+    }
+
+    headers.set('Authorization', `Bearer ${token}`)
   }
+
+  const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers })
+
+  if (isPublicAuthRequest) {
+    if (!response.ok) {
+      const detail = await response.text()
+      throw new Error(detail || `API request failed (${response.status})`)
+    }
+    if (response.status === 204) return undefined as T
+    return response.json() as Promise<T>
+  }
+
+  if (response.status === 401 && retry && typeof window !== 'undefined') {
+    const refreshedToken = await refreshAccessToken()
+    if (refreshedToken) {
+      headers.set('Authorization', `Bearer ${refreshedToken}`)
+      const retried = await fetch(`${API_BASE_URL}${path}`, { ...init, headers })
+      if (retried.ok) {
+        if (retried.status === 204) return undefined as T
+        return retried.json() as Promise<T>
+      }
+      if (retried.status === 401) {
+        redirectToLogin()
+        throw new Error(SESSION_EXPIRED_MESSAGE)
+      }
+    }
+
+    redirectToLogin()
+    throw new Error(SESSION_EXPIRED_MESSAGE)
+  }
+
   if (!response.ok) {
     const detail = await response.text()
+    if (response.status === 401) {
+      redirectToLogin()
+    }
     throw new Error(detail || `API request failed (${response.status})`)
   }
   if (response.status === 204) return undefined as T
@@ -59,7 +213,7 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true): P
 export const api = {
   login: (email: string, password: string) => request<AuthSession>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
   me: () => request<Record<string, unknown>>('/auth/me'),
-  logout: () => request<void>('/auth/logout', { method: 'POST', body: JSON.stringify({ refresh_token: typeof window !== 'undefined' ? window.localStorage.getItem('cleanspace_refresh_token') : null }) }),
+  logout: () => request<void>('/auth/logout', { method: 'POST', body: JSON.stringify({ refresh_token: getRefreshToken() }) }),
   people: (params = '') => request<ApiPerson[] | { items?: ApiPerson[]; data?: ApiPerson[] }>(`/personas${params}`),
   createPerson: (data: Record<string, unknown>) => request<ApiPerson>('/personas', { method: 'POST', body: JSON.stringify(data) }),
   updatePerson: (id: number, data: Record<string, unknown>) => request<ApiPerson>(`/personas/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),

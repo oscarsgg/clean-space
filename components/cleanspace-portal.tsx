@@ -1,9 +1,10 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
 import { LiveApiList, PendingIntegration, liveLoaders } from '@/components/live-api-list'
-import { api } from '@/lib/api'
+import { api, clearSession, getCurrentUserFromToken } from '@/lib/api'
 import { LiveDeviceForm, LivePersonForm, LiveRoomForm } from '@/components/live-admin-forms'
 import { Activity, AlertTriangle, Bell, Building2, ChevronRight, ClipboardList, DoorOpen, Gauge, LayoutDashboard, LogOut, Plus, Search, Settings2, ShieldCheck, SlidersHorizontal, TabletSmartphone, UserRound, Users, Wind } from 'lucide-react'
 
@@ -27,6 +28,63 @@ const sensors = [
   ['Temperatura', '21.8 °C', 'En rango'], ['Humedad relativa', '46.2 %', 'En rango'], ['Presión diferencial', '+12 Pa', 'En rango'], ['Partículas 0.5 μm', '182 p/m³', 'Revisar'],
 ]
 
+type UserSummary = { name: string; role: string; initials: string }
+
+function normalizeRole(value: unknown): string | null {
+  if (typeof value === 'string' && value.trim()) return value.trim()
+  if (Array.isArray(value)) {
+    const resolved = value.map((entry) => normalizeRole(entry)).find(Boolean)
+    return resolved ?? null
+  }
+  if (value && typeof value === 'object') {
+    const nested = value as Record<string, unknown>
+    return normalizeRole(nested.name ?? nested.label ?? nested.title ?? nested.role ?? nested.value) ?? null
+  }
+  return null
+}
+
+function readUserName(rawUser: Record<string, unknown> | null | undefined) {
+  const candidate = rawUser && typeof rawUser === 'object' ? rawUser : null
+  const nestedUser = candidate && 'user' in candidate && candidate.user && typeof candidate.user === 'object' ? candidate.user as Record<string, unknown> : null
+  const nestedData = candidate && 'data' in candidate && candidate.data && typeof candidate.data === 'object' ? candidate.data as Record<string, unknown> : null
+  const userRecord = nestedUser ?? nestedData ?? candidate
+
+  const directName =
+    typeof userRecord?.name === 'string' ? userRecord.name :
+    typeof userRecord?.full_name === 'string' ? userRecord.full_name :
+    typeof userRecord?.fullName === 'string' ? userRecord.fullName :
+    typeof userRecord?.nombre === 'string' ? userRecord.nombre :
+    null
+
+  if (directName && directName.trim()) return directName.trim()
+
+  const firstName = typeof userRecord?.first_name === 'string' ? userRecord.first_name : null
+  const lastName = typeof userRecord?.last_name === 'string' ? userRecord.last_name : null
+  if (firstName || lastName) return [firstName, lastName].filter(Boolean).join(' ').trim()
+
+  const email = typeof userRecord?.email === 'string' ? userRecord.email : null
+  if (email) {
+    const localPart = email.split('@')[0]?.replace(/[._-]+/g, ' ').trim()
+    if (localPart) return localPart
+  }
+
+  return 'Usuario'
+}
+
+function buildUserSummary(rawUser: Record<string, unknown> | null | undefined, fallbackRole: 'admin' | 'supervisor'): UserSummary {
+  const name = readUserName(rawUser)
+  const normalizedRole = normalizeRole(rawUser?.role) ?? (fallbackRole === 'admin' ? 'Administrador' : 'Supervisor')
+  const initials = name
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((segment) => segment[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase() || 'U'
+
+  return { name, role: normalizedRole, initials }
+}
+
 function Logo() { return <Link href="/" className="flex items-center gap-3"><div className="flex size-10 items-center justify-center overflow-hidden rounded-xl bg-[#dff8f5]"><img src="/custodia-logo.png" alt="CleanSpace" className="size-full object-cover" /></div><div><div className="font-serif text-[19px] font-semibold tracking-[-0.03em] text-white">CleanSpace</div><div className="text-[9px] font-semibold uppercase tracking-[0.24em] text-slate-400">operación crítica</div></div></Link> }
 
 function StatCard({ label, value, detail, tone = 'default' }: { label: string; value: string; detail: string; tone?: 'default' | 'warning' }) { return <div className="group rounded-2xl border border-[#e5edf0] bg-white p-5 shadow-[0_8px_24px_rgba(18,49,66,0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:border-[#b9dedb] hover:shadow-[0_14px_32px_rgba(18,49,66,0.1)]"><p className="text-xs font-medium text-[#82969d]">{label}</p><p className="mt-2 text-3xl font-semibold tracking-tight text-[#163542]">{value}</p><p className={`mt-1 text-xs ${tone === 'warning' ? 'text-amber-600' : 'text-emerald-600'}`}>{detail}</p></div> }
@@ -39,4 +97,39 @@ function PersonForm({ permissions = false }: { permissions?: boolean }) { return
 
 function Content({ path }: { path: string }) { const normalizedPath = path.replace('/supervisor', '').replace('/admin', ''); if (path === '/admin/dashboard') return <LiveApiList title="Resumen operativo" eyebrow="Administración" description="Resumen oficial entregado por el endpoint del dashboard administrativo." loader={liveLoaders.adminSummary} />; if (path === '/supervisor/dashboard') return <PendingIntegration title="Dashboard de supervisor pendiente" description="Pendiente: conectar el dashboard del supervisor a su endpoint real. El OpenAPI actual únicamente expone /api/v1/dashboard/admin/summary; no se inventó un contrato para supervisor." />; if (normalizedPath === '/dashboard') return <PendingIntegration title="Ruta no disponible" description="Usa /admin/dashboard o /supervisor/dashboard." />; if (path === '/admin/cuartos/nuevo') return <LiveRoomForm />; if (path === '/admin/cuartos') return <LiveApiList title="Cuartos limpios" eyebrow="Administración" description="Datos sincronizados con los cuartos registrados en FastAPI." loader={liveLoaders.rooms} actionHref="/admin/cuartos/nuevo" actionLabel="Nuevo cuarto" />; if (path === '/admin/dispositivos/nuevo') return <LiveDeviceForm />; if (path === '/admin/dispositivos') return <LiveApiList title="Dispositivos" eyebrow="Administración" description="Dispositivos registrados y su estado reportado por FastAPI." loader={liveLoaders.devices} actionHref="/admin/dispositivos/nuevo" actionLabel="Nuevo dispositivo" />; if (path === '/admin/personas/nueva') return <LivePersonForm />; if (path.includes('/admin/personas/') && path.endsWith('/permisos')) return <PendingIntegration title="Permisos de persona" description="Pendiente: conectar GET/POST/PATCH /api/v1/permisos usando el user_id de la ruta. No se envían permisos ficticios ni se inventa un contrato." />; if (path === '/admin/personas') return <LiveApiList title="Personas autorizadas" eyebrow="Administración" description="Personas registradas y roles devueltos por FastAPI." loader={() => api.people('?page=1&size=50')} actionHref="/admin/personas/nueva" actionLabel="Nueva persona" />; if (path === '/monitoreo/parametros' || path === '/admin/monitoreo/parametros') return <PendingIntegration title="Parámetros ambientales" description="Pendiente: conectar parámetros a GET/PUT /api/v1/cuartos/{{id}}/parametros. Esta pantalla no tiene un cuarto seleccionado y no se inventó un cleanroom_id." />; if (path === '/accesos' || path === '/supervisor/accesos') return <LiveApiList title="Accesos" eyebrow="Supervisión" description="Entradas y salidas registradas por FastAPI." loader={liveLoaders.accesses} />; if (path === '/monitoreo' || path === '/supervisor/monitoreo') return <LiveApiList title="Monitoreo ambiental" eyebrow="Supervisión" description="Lecturas e histórico disponibles en FastAPI." loader={liveLoaders.monitoring} />; if (path === '/monitoreo/historico' || path === '/supervisor/monitoreo/historico') return <LiveApiList title="Histórico" eyebrow="Supervisión" description="Tendencias ambientales consultadas desde FastAPI." loader={liveLoaders.monitoring} />; if (path === '/avisos' || path === '/supervisor/avisos') return <LiveApiList title="Avisos" eyebrow="Supervisión" description="Condiciones que requieren seguimiento operativo." loader={liveLoaders.notices} />; return <LiveApiList title="Análisis" eyebrow="Supervisión" description="Indicadores de cumplimiento y desempeño operativo." loader={liveLoaders.indicators} /> }
 
-export default function CleanSpacePortal({ role = 'admin' }: { role?: 'admin' | 'supervisor' }) { const pathname = usePathname(); const items = role === 'admin' ? adminItems : supervisorItems; return <div className="min-h-screen bg-[#f6f9f9] text-[#163542]"><aside className="fixed inset-y-0 left-0 z-20 hidden w-[252px] flex-col bg-[#102c3a] px-4 py-5 lg:flex"><div className="px-3"><Logo /></div><p className="mt-10 px-3 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">{role === 'admin' ? 'Administración' : 'Supervisión'}</p><nav className="mt-3 flex flex-col gap-1">{items.map(({ href, label, icon: Icon }) => <Link key={href} href={href} className={`flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition ${pathname === href ? 'bg-[#1c4b56] text-white' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}><Icon className="size-[18px]" /><span className="flex-1">{label}</span></Link>)}</nav><div className="mt-auto rounded-2xl border border-white/10 bg-white/5 p-3"><div className="flex items-center gap-3"><div className="flex size-9 items-center justify-center rounded-full bg-[#d8efed] text-xs font-bold text-[#087f7b]">MC</div><div><p className="text-xs font-semibold text-white">Mateo Cruz</p><p className="text-[10px] text-slate-400">{role === 'admin' ? 'Administrador' : 'Supervisor'}</p></div></div><Link href="/" className="mt-4 flex items-center gap-2 text-xs text-slate-400 hover:text-white"><LogOut className="size-3.5" /> Cerrar sesión</Link></div></aside><div className="lg:pl-[252px]"><header className="sticky top-0 z-10 flex h-[72px] items-center justify-between border-b border-[#e5edf0] bg-white/95 px-5 shadow-[0_4px_18px_rgba(18,49,66,0.04)] backdrop-blur sm:px-8"><div><p className="text-xs text-[#78909a]">CleanSpace / {role === 'admin' ? 'Administrador' : 'Supervisor'}</p><h2 className="text-sm font-semibold text-[#29434e]">{items.find((item) => item.href === pathname)?.label ?? 'Resumen'}</h2></div><div className="flex items-center gap-4"><span className="hidden items-center gap-2 text-xs text-emerald-700 sm:flex"><span className="size-2 rounded-full bg-emerald-500" /> Sistema conectado</span><Bell className="size-5 text-[#607b85]" /><div className="flex size-8 items-center justify-center rounded-full bg-[#d8efed] text-[10px] font-bold text-[#087f7b]">MC</div></div></header><main className="mx-auto max-w-[1440px] p-5 sm:p-8"><Content path={pathname} /></main></div></div> }
+export default function CleanSpacePortal({ role = 'admin' }: { role?: 'admin' | 'supervisor' }) {
+  const pathname = usePathname()
+  const router = useRouter()
+  const items = role === 'admin' ? adminItems : supervisorItems
+  const [user, setUser] = useState<UserSummary>(() => buildUserSummary(null, role))
+
+  useEffect(() => {
+    let active = true
+
+    const loadUser = async () => {
+      try {
+        const response = await api.me()
+        if (!active) return
+        setUser(buildUserSummary(response as Record<string, unknown>, role))
+      } catch {
+        const fallback = getCurrentUserFromToken()
+        if (!active) return
+        setUser(buildUserSummary(fallback, role))
+      }
+    }
+
+    loadUser()
+    return () => { active = false }
+  }, [role])
+
+  const handleLogout = async () => {
+    try {
+      await api.logout()
+    } catch {
+      // no-op: limpiamos sesión local aunque la API falle
+    }
+    clearSession()
+    router.push('/login')
+  }
+
+  return <div className="min-h-screen bg-[#f6f9f9] text-[#163542]"><aside className="fixed inset-y-0 left-0 z-20 hidden w-[252px] flex-col bg-[#102c3a] px-4 py-5 lg:flex"><div className="px-3"><Logo /></div><p className="mt-10 px-3 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">{role === 'admin' ? 'Administración' : 'Supervisión'}</p><nav className="mt-3 flex flex-col gap-1">{items.map(({ href, label, icon: Icon }) => <Link key={href} href={href} className={`flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition ${pathname === href ? 'bg-[#1c4b56] text-white' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}><Icon className="size-[18px]" /><span className="flex-1">{label}</span></Link>)}</nav><div className="mt-auto rounded-2xl border border-white/10 bg-white/5 p-3"><div className="flex items-center gap-3"><div className="flex size-9 items-center justify-center rounded-full bg-[#d8efed] text-xs font-bold text-[#087f7b]">{user.initials}</div><div><p className="text-xs font-semibold text-white">{user.name}</p><p className="text-[10px] text-slate-400">{user.role}</p></div></div><button type="button" onClick={handleLogout} className="mt-4 flex items-center gap-2 text-xs text-slate-400 hover:text-white"><LogOut className="size-3.5" /> Cerrar sesión</button></div></aside><div className="lg:pl-[252px]"><header className="sticky top-0 z-10 flex h-[72px] items-center justify-between border-b border-[#e5edf0] bg-white/95 px-5 shadow-[0_4px_18px_rgba(18,49,66,0.04)] backdrop-blur sm:px-8"><div><p className="text-xs text-[#78909a]">CleanSpace / {role === 'admin' ? 'Administrador' : 'Supervisor'}</p><h2 className="text-sm font-semibold text-[#29434e]">{items.find((item) => item.href === pathname)?.label ?? 'Resumen'}</h2></div><div className="flex items-center gap-4"><span className="hidden items-center gap-2 text-xs text-emerald-700 sm:flex"><span className="size-2 rounded-full bg-emerald-500" /> Sistema conectado</span><Bell className="size-5 text-[#607b85]" /><div className="flex size-8 items-center justify-center rounded-full bg-[#d8efed] text-[10px] font-bold text-[#087f7b]">{user.initials}</div></div></header><main className="mx-auto max-w-[1440px] p-5 sm:p-8"><Content path={pathname} /></main></div></div> }
