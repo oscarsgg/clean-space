@@ -251,6 +251,7 @@ export const api = {
   createDevice: (data: Record<string, unknown>) => request<unknown>('/dispositivos', { method: 'POST', body: JSON.stringify(data) }),
   updateDevice: (id: number, data: Record<string, unknown>) => request<unknown>(`/dispositivos/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteDevice: (id: number) => request<void>(`/dispositivos/${id}`, { method: 'DELETE' }),
+  regenerateDeviceKey: (id: number) => request<{ device_id: number; api_key: string }>(`/dispositivos/${id}/llave`, { method: 'POST' }),
   cards: () => request<unknown>('/tarjetas'),
   addCard: (personId: number, data: Record<string, unknown>) => request<unknown>(`/personas/${personId}/tarjetas`, { method: 'POST', body: JSON.stringify(data) }),
   permissions: () => request<unknown>('/permisos'),
