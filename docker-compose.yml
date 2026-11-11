@@ -1,0 +1,52 @@
+services:
+  db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-cleanspace}
+      POSTGRES_USER: ${POSTGRES_USER:-cleanspace}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cleanspace_dev_password}
+    ports:
+      - "${POSTGRES_PORT:-5437}:5432"
+    volumes:
+      - cleanspace_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cleanspace} -d ${POSTGRES_DB:-cleanspace}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      APP_DEBUG: ${APP_DEBUG:-false}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-cleanspace}:${POSTGRES_PASSWORD:-cleanspace_dev_password}@db:5432/${POSTGRES_DB:-cleanspace}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change_this_jwt_secret_key_123456}
+      RFID_HMAC_KEY: ${RFID_HMAC_KEY:-change_this_rfid_hmac_key_123456}
+      CLEANSPACE_ADMIN_KEY: ${CLEANSPACE_ADMIN_KEY:-change_this_admin_api_key_123456}
+      CLEANSPACE_DEVICE_KEY: ${CLEANSPACE_DEVICE_KEY:-change_this_device_api_key_123456}
+      INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL:-admin@cleanspace.local}
+      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-change_this_admin_password_123}
+      CORS_ORIGINS: '["http://localhost:3000"]'
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: .
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:8000/api/v1
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+volumes:
+  cleanspace_postgres_data:

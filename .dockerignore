@@ -1,0 +1,10 @@
+.git
+.next
+node_modules
+backend/.venv
+backend/__pycache__
+backend/.pytest_cache
+backend/*.db
+backend/*.sqlite3
+.env*
+!backend/.env.example
