@@ -18,6 +18,26 @@ export type ApiPerson = {
   [key: string]: unknown
 }
 
+export type ApiRoom = {
+  id: number
+  code: string
+  name: string
+  location: string
+  description: string
+  access_level: string
+  status: string
+}
+
+export type ApiRoomParameter = {
+  id?: number
+  cleanroom_id?: number
+  metric: string
+  min_value: number
+  max_value: number
+  unit: string
+  enabled: boolean
+}
+
 const ACCESS_TOKEN_COOKIE = 'cleanspace_access_token'
 const REFRESH_TOKEN_COOKIE = 'cleanspace_refresh_token'
 const SESSION_EXPIRED_MESSAGE = 'Tu sesión expiró. Inicia sesión nuevamente.'
@@ -219,17 +239,19 @@ export const api = {
   updatePerson: (id: number, data: Record<string, unknown>) => request<ApiPerson>(`/personas/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deletePerson: (id: number) => request<void>(`/personas/${id}`, { method: 'DELETE' }),
   roles: () => request<unknown>('/roles'),
-  rooms: () => request<unknown>('/cuartos'),
-  createRoom: (data: Record<string, unknown>) => request<unknown>('/cuartos', { method: 'POST', body: JSON.stringify(data) }),
-  updateRoom: (id: number, data: Record<string, unknown>) => request<unknown>(`/cuartos/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  rooms: () => request<ApiRoom[]>('/cuartos'),
+  room: (id: number) => request<ApiRoom>(`/cuartos/${id}`),
+  createRoom: (data: Omit<ApiRoom, 'id'>) => request<ApiRoom>('/cuartos', { method: 'POST', body: JSON.stringify(data) }),
+  updateRoom: (id: number, data: Partial<Omit<ApiRoom, 'id' | 'code'>>) => request<ApiRoom>(`/cuartos/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteRoom: (id: number) => request<void>(`/cuartos/${id}`, { method: 'DELETE' }),
-  roomParameters: (id: number) => request<unknown>(`/cuartos/${id}/parametros`),
-  saveRoomParameters: (id: number, data: unknown[]) => request<unknown>(`/cuartos/${id}/parametros`, { method: 'PUT', body: JSON.stringify(data) }),
+  roomParameters: (id: number) => request<ApiRoomParameter[]>(`/cuartos/${id}/parametros`),
+  saveRoomParameters: (id: number, data: ApiRoomParameter[]) => request<ApiRoomParameter[]>(`/cuartos/${id}/parametros`, { method: 'PUT', body: JSON.stringify(data) }),
   devices: () => request<unknown>('/dispositivos'),
   device: (id: number) => request<unknown>(`/dispositivos/${id}`),
   createDevice: (data: Record<string, unknown>) => request<unknown>('/dispositivos', { method: 'POST', body: JSON.stringify(data) }),
   updateDevice: (id: number, data: Record<string, unknown>) => request<unknown>(`/dispositivos/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteDevice: (id: number) => request<void>(`/dispositivos/${id}`, { method: 'DELETE' }),
+  regenerateDeviceKey: (id: number) => request<{ device_id: number; api_key: string }>(`/dispositivos/${id}/llave`, { method: 'POST' }),
   cards: () => request<unknown>('/tarjetas'),
   addCard: (personId: number, data: Record<string, unknown>) => request<unknown>(`/personas/${personId}/tarjetas`, { method: 'POST', body: JSON.stringify(data) }),
   permissions: () => request<unknown>('/permisos'),
