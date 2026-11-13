@@ -1,0 +1,51 @@
+{
+ "start": "2026-11-13T03:29:43.326Z",
+ "round": 0,
+ "idle": 0,
+ "errors": 1,
+ "status": "error",
+ "history": [
+  {
+   "at": "2026-11-13T03:30:09.423Z",
+   "mode": "manual",
+   "status": "error",
+   "fails": 0,
+   "round": 0,
+   "reused": false,
+   "stopHookActive": false
+  }
+ ],
+ "max": 3,
+ "marker": {
+  "page": null,
+  "url": "http://127.0.0.1:3189/",
+  "root": null,
+  "kind": "software",
+  "category": "CleanSpace, gestión de espacios limpios",
+  "primary": "Ingresar al sistema",
+  "rounds": 3,
+  "start": "2026-11-13T03:29:43.326Z",
+  "by": "gate.mjs --start"
+ },
+ "manual": true,
+ "fp": "59bea4f0dcf7322c",
+ "page": "http://127.0.0.1:3189/",
+ "found": {
+  "fails": [],
+  "warns": [],
+  "crashed": [
+   "the copy (the page showed no <main>, <section> or <h1> to lint)",
+   "consistency.mjs gave no report (exit 1: Error: Chrome exited early (4294930433))",
+   "check.mjs could not run (exit 2: check: Chrome did not start)"
+  ],
+  "seconds": {
+   "consistency": 1,
+   "layout": 16
+  }
+ },
+ "open": [],
+ "waived": [],
+ "warnCount": 0,
+ "note": "the copy (the page showed no <main>, <section> or <h1> to lint); consistency.mjs gave no report (exit 1: Error: Chrome exited early (4294930433)); check.mjs could not run (exit 2: check: Chrome did not start)",
+ "at": "2026-11-13T03:30:09.428Z"
+}

@@ -1,0 +1,11 @@
+{
+ "page": null,
+ "url": "http://127.0.0.1:3189/",
+ "root": null,
+ "kind": "software",
+ "category": "CleanSpace, gestión de espacios limpios",
+ "primary": "Ingresar al sistema",
+ "rounds": 3,
+ "start": "2026-11-13T03:29:43.326Z",
+ "by": "gate.mjs --start"
+}
