@@ -9,9 +9,31 @@ import { AccessPermissionManagement } from '@/components/access-management'
 import { AlertsManagement } from '@/components/alerts-management'
 import { DeviceManagement } from '@/components/device-management'
 import { PeopleManagement } from '@/components/people-management'
+import { SupervisorDashboard } from '@/components/supervisor-dashboard'
+import { AccessZoneMonitor } from '@/components/access-zone-monitor'
+import { EcbdAnalytics } from '@/components/ecbd-analytics'
+import { AgentDrawer } from '@/components/agent-drawer'
 import { api, clearSession, getCurrentUserFromToken } from '@/lib/api'
 import { LiveDeviceForm, LivePersonForm } from '@/components/live-admin-forms'
-import { Activity, AlertTriangle, Bell, Building2, ChevronRight, ClipboardList, DoorOpen, Gauge, LayoutDashboard, LogOut, Plus, Search, Settings2, ShieldCheck, SlidersHorizontal, TabletSmartphone, UserRound, Users, Wind } from 'lucide-react'
+import {
+  Activity,
+  Bell,
+  Bot,
+  Building2,
+  ClipboardList,
+  DoorOpen,
+  Gauge,
+  LayoutDashboard,
+  LogOut,
+  Menu,
+  Moon,
+  ShieldCheck,
+  SlidersHorizontal,
+  Sun,
+  TabletSmartphone,
+  Users,
+  X,
+} from 'lucide-react'
 
 const adminItems = [
   { href: '/admin/dashboard', label: 'Resumen', icon: LayoutDashboard },
@@ -30,9 +52,7 @@ const supervisorItems = [
   { href: '/supervisor/analisis', label: 'Análisis', icon: Gauge },
 ]
 
-const sensors = [
-  ['Temperatura', '21.8 °C', 'En rango'], ['Humedad relativa', '46.2 %', 'En rango'], ['Presión diferencial', '+12 Pa', 'En rango'], ['Partículas 0.5 μm', '182 p/m³', 'Revisar'],
-]
+const THEME_STORAGE_KEY = 'cleanspace_theme'
 
 type UserSummary = { name: string; role: string; initials: string }
 
@@ -51,16 +71,26 @@ function normalizeRole(value: unknown): string | null {
 
 function readUserName(rawUser: Record<string, unknown> | null | undefined) {
   const candidate = rawUser && typeof rawUser === 'object' ? rawUser : null
-  const nestedUser = candidate && 'user' in candidate && candidate.user && typeof candidate.user === 'object' ? candidate.user as Record<string, unknown> : null
-  const nestedData = candidate && 'data' in candidate && candidate.data && typeof candidate.data === 'object' ? candidate.data as Record<string, unknown> : null
+  const nestedUser =
+    candidate && 'user' in candidate && candidate.user && typeof candidate.user === 'object'
+      ? (candidate.user as Record<string, unknown>)
+      : null
+  const nestedData =
+    candidate && 'data' in candidate && candidate.data && typeof candidate.data === 'object'
+      ? (candidate.data as Record<string, unknown>)
+      : null
   const userRecord = nestedUser ?? nestedData ?? candidate
 
   const directName =
-    typeof userRecord?.name === 'string' ? userRecord.name :
-    typeof userRecord?.full_name === 'string' ? userRecord.full_name :
-    typeof userRecord?.fullName === 'string' ? userRecord.fullName :
-    typeof userRecord?.nombre === 'string' ? userRecord.nombre :
-    null
+    typeof userRecord?.name === 'string'
+      ? userRecord.name
+      : typeof userRecord?.full_name === 'string'
+        ? userRecord.full_name
+        : typeof userRecord?.fullName === 'string'
+          ? userRecord.fullName
+          : typeof userRecord?.nombre === 'string'
+            ? userRecord.nombre
+            : null
 
   if (directName && directName.trim()) return directName.trim()
 
@@ -80,62 +110,354 @@ function readUserName(rawUser: Record<string, unknown> | null | undefined) {
 function buildUserSummary(rawUser: Record<string, unknown> | null | undefined, fallbackRole: 'admin' | 'supervisor'): UserSummary {
   const name = readUserName(rawUser)
   const normalizedRole = normalizeRole(rawUser?.role) ?? (fallbackRole === 'admin' ? 'Administrador' : 'Supervisor')
-  const initials = name
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((segment) => segment[0])
-    .join('')
-    .slice(0, 2)
-    .toUpperCase() || 'U'
+  const initials =
+    name
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((segment) => segment[0])
+      .join('')
+      .slice(0, 2)
+      .toUpperCase() || 'U'
 
   return { name, role: normalizedRole, initials }
 }
 
-function Logo() { return <Link href="/" className="flex items-center gap-3"><div className="flex size-10 items-center justify-center overflow-hidden rounded-xl bg-[#dff8f5]"><img src="/custodia-logo.png" alt="CleanSpace" className="size-full object-cover" /></div><div><div className="font-serif text-[19px] font-semibold tracking-[-0.03em] text-white">CleanSpace</div><div className="text-[9px] font-semibold uppercase tracking-[0.24em] text-slate-400">operación crítica</div></div></Link> }
+function Logo() {
+  return (
+    <Link href="/" className="flex items-center gap-3">
+      <div className="flex size-10 items-center justify-center overflow-hidden rounded-xl bg-[#dff8f5]">
+        <img src="/custodia-logo.png" alt="CleanSpace" className="size-full object-cover" />
+      </div>
+      <div>
+        <div className="font-serif text-[19px] font-semibold tracking-[-0.03em] text-white">CleanSpace</div>
+        <div className="text-[9px] font-semibold uppercase tracking-[0.24em] text-slate-400">operación crítica</div>
+      </div>
+    </Link>
+  )
+}
 
-function StatCard({ label, value, detail, tone = 'default' }: { label: string; value: string; detail: string; tone?: 'default' | 'warning' }) { return <div className="group rounded-2xl border border-[#e5edf0] bg-white p-5 shadow-[0_8px_24px_rgba(18,49,66,0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:border-[#b9dedb] hover:shadow-[0_14px_32px_rgba(18,49,66,0.1)]"><p className="text-xs font-medium text-[#82969d]">{label}</p><p className="mt-2 text-3xl font-semibold tracking-tight text-[#163542]">{value}</p><p className={`mt-1 text-xs ${tone === 'warning' ? 'text-amber-600' : 'text-emerald-600'}`}>{detail}</p></div> }
-
-function DashboardHome() { return <div className="flex flex-col gap-6"><div><p className="text-sm font-medium text-[#0d9691]">Miércoles, 06 de octubre de 2026</p><h1 className="mt-1 text-3xl font-semibold tracking-tight text-[#102d3b]">Buenos días, Mateo</h1><p className="mt-1 text-sm text-[#718995]">Resumen de la operación de tus cuartos limpios.</p></div><div className="flex items-center gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/70 px-4 py-3.5"><ShieldCheck className="size-5 text-emerald-700" /><div><p className="text-sm font-semibold text-emerald-900">Sistema operando con normalidad</p><p className="text-xs text-emerald-700/80">3 de 4 parámetros ambientales están en rango.</p></div></div><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><StatCard label="Cuartos activos" value="04" detail="Todos conectados" /><StatCard label="Accesos de hoy" value="128" detail="+12% vs. ayer" /><StatCard label="Personas autorizadas" value="36" detail="34 activas" /><StatCard label="Avisos abiertos" value="02" detail="Requieren atención" tone="warning" /></div><section className="rounded-2xl border border-[#e5edf0] bg-white p-5"><div className="flex items-center justify-between"><div><h2 className="font-semibold text-[#163542]">Estado ambiental</h2><p className="mt-1 text-xs text-[#8a9da5]">Cuarto Limpio 01 · actualización en tiempo real</p></div><Link href="/monitoreo" className="text-xs font-semibold text-[#087f7b]">Ver monitoreo</Link></div><div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{sensors.map(([label, value, status]) => <div key={label} className="rounded-xl bg-[#f7fbfb] p-4"><div className="flex items-center justify-between"><Wind className="size-4 text-[#087f7b]" /><span className={`text-[10px] font-semibold ${status === 'Revisar' ? 'text-amber-600' : 'text-emerald-600'}`}>{status}</span></div><p className="mt-4 text-xs text-[#82969d]">{label}</p><p className="mt-1 text-xl font-semibold text-[#163542]">{value}</p></div>)}</div></section></div> }
-
-function ListPage({ title, eyebrow, description, action, actionHref, rows }: { title: string; eyebrow: string; description: string; action?: string; actionHref?: string; rows: { name: string; meta: string; status: string }[] }) { return <div className="flex flex-col gap-6"><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><p className="text-sm font-medium text-[#0d9691]">{eyebrow}</p><h1 className="mt-1 text-3xl font-semibold tracking-tight text-[#102d3b]">{title}</h1><p className="mt-1 text-sm text-[#718995]">{description}</p></div>{action && (actionHref ? <Link href={actionHref} className="flex w-fit items-center gap-2 rounded-xl bg-[#087f7b] px-4 py-2.5 text-sm font-semibold text-white"><Plus className="size-4" />{action}</Link> : <button className="flex w-fit items-center gap-2 rounded-xl bg-[#087f7b] px-4 py-2.5 text-sm font-semibold text-white"><Plus className="size-4" />{action}</button>)}</div><section className="overflow-hidden rounded-2xl border border-[#e5edf0] bg-white shadow-[0_8px_24px_rgba(18,49,66,0.04)]"><div className="flex items-center justify-between border-b border-[#edf2f3] px-5 py-4"><h2 className="font-semibold text-[#163542]">Listado activo</h2><Search className="size-4 text-[#82969d]" /></div><div className="divide-y divide-[#edf2f3]">{rows.map((row) => <div key={row.name} className="group flex items-center gap-4 px-5 py-4 transition-colors duration-150 hover:bg-[#f5fbfa]"><div className="flex size-10 items-center justify-center rounded-xl bg-[#e9f4f3] text-[#087f7b]"><Building2 className="size-5" /></div><div className="min-w-0 flex-1"><p className="text-sm font-semibold text-[#29434e]">{row.name}</p><p className="text-xs text-[#93a4aa]">{row.meta}</p></div><span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">{row.status}</span><ChevronRight className="size-4 text-[#b3c1c5]" /></div>)}</div></section></div> }
-
-function PersonForm({ permissions = false }: { permissions?: boolean }) { return <div className="flex flex-col gap-6"><div><p className="text-sm font-medium text-[#0d9691]">Administración</p><h1 className="mt-1 text-3xl font-semibold tracking-tight text-[#102d3b]">{permissions ? 'Permisos de acceso' : 'Nueva persona'}</h1><p className="mt-1 text-sm text-[#718995]">{permissions ? 'Define los cuartos y horarios habilitados para esta persona.' : 'Registra una persona y asigna su perfil operativo.'}</p></div><section className="max-w-3xl rounded-2xl border border-[#e5edf0] bg-white p-6 shadow-[0_8px_24px_rgba(18,49,66,0.04)]"><div className="grid gap-5 sm:grid-cols-2">{(permissions ? ['Cuarto Limpio 01 · Producción', 'Cuarto Limpio 02 · Preparación', 'Cuarto Limpio 03 · Empaque'] : ['Nombre completo', 'Correo institucional', 'Rol operativo', 'Identificador RFID']).map((label) => <label key={label} className="flex flex-col gap-2 text-sm font-medium text-[#29434e]"><span>{label}</span>{permissions ? <span className="flex items-center gap-3 rounded-xl border border-[#e5edf0] p-3 text-xs text-[#58727c]"><input type="checkbox" defaultChecked className="size-4 accent-[#087f7b]" /> Acceso habilitado</span> : <input className="rounded-xl border border-[#dce8eb] bg-[#f9fcfc] px-3 py-2.5 text-sm outline-none focus:border-[#087f7b]" placeholder={label} />}</label>)}</div><div className="mt-6 flex justify-end gap-3"><Link href="/admin/personas" className="rounded-xl border border-[#dce8eb] px-4 py-2.5 text-sm font-semibold text-[#58727c]">Cancelar</Link><button className="rounded-xl bg-[#087f7b] px-4 py-2.5 text-sm font-semibold text-white">{permissions ? 'Guardar permisos' : 'Crear persona'}</button></div></section></div> }
-
-function Content({ path }: { path: string }) { const normalizedPath = path.replace('/supervisor', '').replace('/admin', ''); if (path === '/admin/dashboard') return <LiveApiList title="Resumen operativo" eyebrow="Administración" description="Resumen oficial entregado por el endpoint del dashboard administrativo." loader={liveLoaders.adminSummary} />; if (path === '/supervisor/dashboard') return <PendingIntegration title="Dashboard de supervisor pendiente" description="Pendiente: conectar el dashboard del supervisor a su endpoint real. El OpenAPI actual únicamente expone /api/v1/dashboard/admin/summary; no se inventó un contrato para supervisor." />; if (normalizedPath === '/dashboard') return <PendingIntegration title="Ruta no disponible" description="Usa /admin/dashboard o /supervisor/dashboard." />; if (path.startsWith('/admin/cuartos')) return <RoomManagement />; if (path === '/admin/dispositivos/nuevo') return <LiveDeviceForm />; if (path === '/admin/dispositivos') return <DeviceManagement />; if (path === '/admin/personas/nueva') return <LivePersonForm />; if (path.startsWith('/admin/personas/') && path.endsWith('/permisos')) return <AccessPermissionManagement personId={Number(path.split('/')[3])} />; if (path === '/admin/permisos') return <AccessPermissionManagement />; if (path === '/admin/personas') return <PeopleManagement />; if (path === '/monitoreo/parametros' || path === '/admin/monitoreo/parametros') return <RoomManagement />; if (path === '/accesos' || path === '/supervisor/accesos') return <LiveApiList title="Accesos" eyebrow="Supervisión" description="Entradas y salidas registradas por FastAPI." loader={liveLoaders.accesses} />; if (path === '/monitoreo' || path === '/supervisor/monitoreo') return <LiveApiList title="Monitoreo ambiental" eyebrow="Supervisión" description="Lecturas e histórico disponibles en FastAPI." loader={liveLoaders.monitoring} />; if (path === '/monitoreo/historico' || path === '/supervisor/monitoreo/historico') return <LiveApiList title="Histórico" eyebrow="Supervisión" description="Tendencias ambientales consultadas desde FastAPI." loader={liveLoaders.monitoring} />; if (path === '/avisos' || path === '/supervisor/avisos') return <AlertsManagement />; return <LiveApiList title="Análisis" eyebrow="Supervisión" description="Indicadores de cumplimiento y desempeño operativo." loader={liveLoaders.indicators} /> }
+function Content({ path }: { path: string }) {
+  const normalizedPath = path.replace('/supervisor', '').replace('/admin', '')
+  if (path === '/admin/dashboard') {
+    return (
+      <LiveApiList
+        title="Resumen operativo"
+        eyebrow="Administración"
+        description="Resumen oficial entregado por el endpoint del dashboard administrativo."
+        loader={liveLoaders.adminSummary}
+      />
+    )
+  }
+  if (path === '/supervisor/dashboard') return <SupervisorDashboard />
+  if (normalizedPath === '/dashboard') {
+    return (
+      <PendingIntegration
+        title="Ruta no disponible"
+        description="Usa /admin/dashboard o /supervisor/dashboard."
+      />
+    )
+  }
+  if (path.startsWith('/admin/cuartos')) return <RoomManagement />
+  if (path === '/admin/dispositivos/nuevo') return <LiveDeviceForm />
+  if (path === '/admin/dispositivos') return <DeviceManagement />
+  if (path === '/admin/personas/nueva') return <LivePersonForm />
+  if (path.startsWith('/admin/personas/') && path.endsWith('/permisos')) {
+    return <AccessPermissionManagement personId={Number(path.split('/')[3])} />
+  }
+  if (path === '/admin/permisos') return <AccessPermissionManagement />
+  if (path === '/admin/personas') return <PeopleManagement />
+  if (path === '/monitoreo/parametros' || path === '/admin/monitoreo/parametros') return <RoomManagement />
+  if (path === '/accesos' || path === '/supervisor/accesos') return <AccessZoneMonitor />
+  if (path === '/monitoreo' || path === '/supervisor/monitoreo') {
+    return (
+      <LiveApiList
+        title="Monitoreo ambiental"
+        eyebrow="Supervisión"
+        description="Lecturas e histórico disponibles en FastAPI."
+        loader={liveLoaders.monitoring}
+      />
+    )
+  }
+  if (path === '/monitoreo/historico' || path === '/supervisor/monitoreo/historico') {
+    return (
+      <LiveApiList
+        title="Histórico"
+        eyebrow="Supervisión"
+        description="Tendencias ambientales consultadas desde FastAPI."
+        loader={liveLoaders.monitoring}
+      />
+    )
+  }
+  if (path === '/avisos' || path === '/supervisor/avisos') return <AlertsManagement />
+  if (path === '/analisis' || path === '/supervisor/analisis') return <EcbdAnalytics />
+  return <EcbdAnalytics />
+}
 
 export default function CleanSpacePortal({ role = 'admin' }: { role?: 'admin' | 'supervisor' }) {
   const pathname = usePathname()
   const router = useRouter()
+  const [userRoles, setUserRoles] = useState<string[]>([])
+  const hasAdminRole = userRoles.includes('ADMINISTRADOR')
   const items = role === 'admin' ? adminItems : supervisorItems
   const [user, setUser] = useState<UserSummary>(() => buildUserSummary(null, role))
+  const [isDark, setIsDark] = useState(false)
+  const [agentOpen, setAgentOpen] = useState(false)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(THEME_STORAGE_KEY)
+      const darkPreferred = saved === 'dark'
+      setIsDark(darkPreferred)
+      document.documentElement.classList.toggle('dark', darkPreferred)
+    } catch {
+      setIsDark(false)
+    }
+  }, [])
+
+  const toggleTheme = () => {
+    setIsDark((prev) => {
+      const next = !prev
+      document.documentElement.classList.toggle('dark', next)
+      try {
+        window.localStorage.setItem(THEME_STORAGE_KEY, next ? 'dark' : 'light')
+      } catch {
+        // ignore storage errors
+      }
+      return next
+    })
+  }
 
   useEffect(() => {
     let active = true
+
+    const applyResolvedUser = (rawUser: Record<string, unknown> | null | undefined) => {
+      const rolesRaw = rawUser?.roles
+      const resolvedRoles = Array.isArray(rolesRaw) ? rolesRaw.map((item) => String(item).toUpperCase()) : []
+      if (resolvedRoles.length > 0) {
+        setUserRoles(resolvedRoles)
+        if (role === 'admin' && !resolvedRoles.includes('ADMINISTRADOR') && resolvedRoles.includes('SUPERVISOR')) {
+          router.replace('/supervisor/dashboard')
+        }
+      }
+      setUser(buildUserSummary(rawUser, role))
+    }
 
     const loadUser = async () => {
       try {
         const response = await api.me()
         if (!active) return
-        setUser(buildUserSummary(response as Record<string, unknown>, role))
+        applyResolvedUser(response as Record<string, unknown>)
       } catch {
         const fallback = getCurrentUserFromToken()
         if (!active) return
-        setUser(buildUserSummary(fallback, role))
+        applyResolvedUser(fallback)
       }
     }
 
-    loadUser()
-    return () => { active = false }
-  }, [role])
+    void loadUser()
+    return () => {
+      active = false
+    }
+  }, [role, router])
+
+  useEffect(() => {
+    setMobileMenuOpen(false)
+  }, [pathname])
 
   const handleLogout = async () => {
     try {
       await api.logout()
     } catch {
-      // no-op: limpiamos sesión local aunque la API falle
+      // limpiamos sesión local aunque la API falle
     }
     clearSession()
     router.push('/login')
   }
 
-  return <div className="min-h-screen bg-[#f6f9f9] text-[#163542]"><aside className="fixed inset-y-0 left-0 z-20 hidden w-[252px] flex-col bg-[#102c3a] px-4 py-5 lg:flex"><div className="px-3"><Logo /></div><p className="mt-10 px-3 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">{role === 'admin' ? 'Administración' : 'Supervisión'}</p><nav className="mt-3 flex flex-col gap-1">{items.map(({ href, label, icon: Icon }) => <Link key={href} href={href} className={`flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition ${pathname === href ? 'bg-[#1c4b56] text-white' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}><Icon className="size-[18px]" /><span className="flex-1">{label}</span></Link>)}</nav><div className="mt-auto rounded-2xl border border-white/10 bg-white/5 p-3"><div className="flex items-center gap-3"><div className="flex size-9 items-center justify-center rounded-full bg-[#d8efed] text-xs font-bold text-[#087f7b]">{user.initials}</div><div><p className="text-xs font-semibold text-white">{user.name}</p><p className="text-[10px] text-slate-400">{user.role}</p></div></div><button type="button" onClick={handleLogout} className="mt-4 flex items-center gap-2 text-xs text-slate-400 hover:text-white"><LogOut className="size-3.5" /> Cerrar sesión</button></div></aside><div className="lg:pl-[252px]"><header className="sticky top-0 z-10 flex h-[72px] items-center justify-between border-b border-[#e5edf0] bg-white/95 px-5 shadow-[0_4px_18px_rgba(18,49,66,0.04)] backdrop-blur sm:px-8"><div><p className="text-xs text-[#78909a]">CleanSpace / {role === 'admin' ? 'Administrador' : 'Supervisor'}</p><h2 className="text-sm font-semibold text-[#29434e]">{items.find((item) => item.href === pathname)?.label ?? 'Resumen'}</h2></div><div className="flex items-center gap-4"><span className="hidden items-center gap-2 text-xs text-emerald-700 sm:flex"><span className="size-2 rounded-full bg-emerald-500" /> Sistema conectado</span><Bell className="size-5 text-[#607b85]" /><div className="flex size-8 items-center justify-center rounded-full bg-[#d8efed] text-[10px] font-bold text-[#087f7b]">{user.initials}</div></div></header><main className="mx-auto max-w-[1440px] p-5 sm:p-8"><Content path={pathname} /></main></div></div> }
+  return (
+    <div className="min-h-screen bg-[#f6f9f9] text-[#163542] transition-colors dark:bg-[#0b141a] dark:text-[#e6f0f2]">
+      <aside className="fixed inset-y-0 left-0 z-20 hidden w-[252px] flex-col overflow-y-auto bg-[#102c3a] px-4 py-5 dark:bg-[#09151c] lg:flex">
+        <div className="px-3">
+          <Logo />
+        </div>
+        <p className="mt-8 px-3 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">
+          {role === 'admin' ? 'Administración' : 'Supervisión'}
+        </p>
+        <nav className="mt-3 flex flex-col gap-1">
+          {items.map(({ href, label, icon: Icon }) => (
+            <Link
+              key={href}
+              href={href}
+              className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${
+                pathname === href
+                  ? 'bg-[#1c4b56] text-white'
+                  : 'text-slate-400 hover:bg-white/5 hover:text-white'
+              }`}
+            >
+              <Icon className="size-[18px]" />
+              <span className="flex-1">{label}</span>
+            </Link>
+          ))}
+        </nav>
+        {hasAdminRole && (
+          <>
+            <p className="mt-6 px-3 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">
+              {role === 'admin' ? 'Supervisión y Agente' : 'Administración'}
+            </p>
+            <nav className="mt-2 flex flex-col gap-1">
+              {(role === 'admin' ? supervisorItems : adminItems).map(({ href, label, icon: Icon }) => (
+                <Link
+                  key={href}
+                  href={href}
+                  className={`flex items-center gap-3 rounded-xl px-3 py-2 text-xs font-medium transition ${
+                    pathname === href
+                      ? 'bg-[#1c4b56] text-white'
+                      : 'text-slate-400 hover:bg-white/5 hover:text-white'
+                  }`}
+                >
+                  <Icon className="size-4" />
+                  <span className="flex-1">{label}</span>
+                </Link>
+              ))}
+            </nav>
+          </>
+        )}
+        <div className="mt-auto pt-4">
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+            <div className="flex items-center gap-3">
+              <div className="flex size-9 items-center justify-center rounded-full bg-[#d8efed] text-xs font-bold text-[#087f7b]">
+                {user.initials}
+              </div>
+              <div className="min-w-0">
+                <p className="truncate text-xs font-semibold text-white">{user.name}</p>
+                <p className="truncate text-[10px] text-slate-400">{user.role}</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="mt-4 flex items-center gap-2 text-xs text-slate-400 hover:text-white"
+            >
+              <LogOut className="size-3.5" /> Cerrar sesión
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      {mobileMenuOpen && (
+        <div className="fixed inset-0 z-40 flex lg:hidden">
+          <button
+            type="button"
+            aria-label="Cerrar menú"
+            onClick={() => setMobileMenuOpen(false)}
+            className="fixed inset-0 bg-[#102c3a]/50"
+          />
+          <aside className="relative z-10 flex w-64 flex-col bg-[#102c3a] px-4 py-5 dark:bg-[#09151c]">
+            <div className="flex items-center justify-between px-2">
+              <Logo />
+              <button
+                type="button"
+                aria-label="Cerrar navegación"
+                onClick={() => setMobileMenuOpen(false)}
+                className="rounded-lg p-1.5 text-slate-400 hover:text-white"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+            <nav className="mt-6 flex flex-col gap-1">
+              {items.map(({ href, label, icon: Icon }) => (
+                <Link
+                  key={href}
+                  href={href}
+                  className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${
+                    pathname === href
+                      ? 'bg-[#1c4b56] text-white'
+                      : 'text-slate-400 hover:bg-white/5 hover:text-white'
+                  }`}
+                >
+                  <Icon className="size-[18px]" />
+                  <span>{label}</span>
+                </Link>
+              ))}
+            </nav>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="mt-auto flex items-center gap-2 rounded-xl px-3 py-2.5 text-xs text-slate-400 hover:text-white"
+            >
+              <LogOut className="size-3.5" /> Cerrar sesión
+            </button>
+          </aside>
+        </div>
+      )}
+
+      <div className="lg:pl-[252px]">
+        <header className="sticky top-0 z-10 flex h-[72px] items-center justify-between border-b border-[#e5edf0] bg-white/95 px-5 shadow-[0_4px_18px_rgba(18,49,66,0.04)] backdrop-blur sm:px-8 dark:border-[#1e3340] dark:bg-[#101e26]/95">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              aria-label="Abrir menú"
+              onClick={() => setMobileMenuOpen(true)}
+              className="rounded-xl border border-[#dce8eb] p-2 text-[#29434e] lg:hidden dark:border-[#233a47] dark:text-[#e6f0f2]"
+            >
+              <Menu className="size-4" />
+            </button>
+            <div>
+              <p className="text-xs text-[#78909a] dark:text-[#94adb8]">
+                CleanSpace / {role === 'admin' ? 'Administrador' : 'Supervisor'}
+              </p>
+              <h2 className="text-sm font-semibold text-[#29434e] dark:text-[#e6f0f2]">
+                {items.find((item) => item.href === pathname)?.label ?? 'Resumen'}
+              </h2>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2.5 sm:gap-3">
+            <span className="hidden items-center gap-2 text-xs text-emerald-700 sm:flex dark:text-emerald-300">
+              <span className="size-2 rounded-full bg-emerald-500" /> Sistema conectado
+            </span>
+
+            <button
+              type="button"
+              onClick={toggleTheme}
+              aria-label={isDark ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
+              title={isDark ? 'Modo claro' : 'Modo oscuro'}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-[#dce8eb] bg-[#f7fbfa] px-3 py-2 text-xs font-semibold text-[#29434e] transition hover:bg-[#eff8f7] dark:border-[#233a47] dark:bg-[#13222b] dark:text-[#e6f0f2] dark:hover:bg-[#182b36]"
+            >
+              {isDark ? <Sun className="size-3.5 text-amber-400" /> : <Moon className="size-3.5 text-[#087f7b]" />}
+              <span className="hidden sm:inline">{isDark ? 'Modo Claro' : 'Modo Oscuro'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setAgentOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-[#087f7b] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#066c69]"
+            >
+              <Bot className="size-3.5" />
+              <span>Agente IA</span>
+            </button>
+
+            <Link
+              href={role === 'admin' ? '/avisos' : '/supervisor/avisos'}
+              aria-label="Ver avisos"
+              className="rounded-xl p-1.5 text-[#607b85] transition hover:bg-[#f4f9f8] dark:text-[#94adb8] dark:hover:bg-[#182b36]"
+            >
+              <Bell className="size-5" />
+            </Link>
+
+            <div className="flex size-8 items-center justify-center rounded-full bg-[#d8efed] text-[10px] font-bold text-[#087f7b] dark:bg-[#13313b] dark:text-[#5eead4]">
+              {user.initials}
+            </div>
+          </div>
+        </header>
+
+        <main className="mx-auto max-w-[1440px] p-5 sm:p-8">
+          <Content path={pathname} />
+        </main>
+      </div>
+
+      <AgentDrawer open={agentOpen} onClose={() => setAgentOpen(false)} />
+    </div>
+  )
+}

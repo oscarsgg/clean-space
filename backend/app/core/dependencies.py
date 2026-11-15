@@ -13,6 +13,10 @@ from app.models import (
     AccessEvent,
     AccessLog,
     AccessPermission,
+    AgentConversation,
+    AgentDecisionLog,
+    AgentMessage,
+    AgentReport,
     Alert,
     Cleanroom,
     Command,
@@ -39,7 +43,29 @@ def utcnow():
 def output(obj):
     if isinstance(obj, list):
         return [output(item) for item in obj]
-    if isinstance(obj, (User, Role, Cleanroom, Device, RfidCard, AccessPermission, AccessEvent, AccessLog, DoorPermission, SensorReading, MonitoringParameter, Alert, Command, ModelResult)):
+    if isinstance(
+        obj,
+        (
+            User,
+            Role,
+            Cleanroom,
+            Device,
+            RfidCard,
+            AccessPermission,
+            AccessEvent,
+            AccessLog,
+            DoorPermission,
+            SensorReading,
+            MonitoringParameter,
+            Alert,
+            Command,
+            ModelResult,
+            AgentDecisionLog,
+            AgentConversation,
+            AgentMessage,
+            AgentReport,
+        ),
+    ):
         return {column.name: getattr(obj, column.name) for column in obj.__table__.columns}
     return obj
 

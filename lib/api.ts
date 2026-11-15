@@ -5,6 +5,13 @@ export type AuthSession = {
   refresh_token?: string
   token_type?: string
   expires_in?: number
+  user?: {
+    id?: number
+    email?: string
+    full_name?: string
+    status?: string
+    roles?: string[]
+  }
 }
 
 export type ApiPerson = {
@@ -26,6 +33,206 @@ export type ApiRoom = {
   description: string
   access_level: string
   status: string
+  capacity?: number
+  iso_class?: string
+}
+
+export type SupervisorRoomMetric = {
+  value: number | null
+  unit: string
+  min_value: number | null
+  max_value: number | null
+  in_range: boolean
+}
+
+export type SupervisorOccupant = {
+  user_id: number
+  full_name: string
+  uid_label: string
+}
+
+export type SupervisorRoomSummary = {
+  id: number
+  code: string
+  name: string
+  iso_class: string
+  capacity: number
+  current_occupancy: number
+  device_id: number | null
+  device_code: string | null
+  device_status: string | null
+  occupants: SupervisorOccupant[]
+  metrics: Record<string, SupervisorRoomMetric>
+}
+
+export type SupervisorSummary = {
+  total_events: number
+  entries: number
+  exits: number
+  denied: number
+  current_occupancy: number
+  active_alerts: number
+  rooms: SupervisorRoomSummary[]
+}
+
+export type SendCommandPayload = {
+  device_id: number
+  command: string
+  payload?: Record<string, unknown>
+}
+
+export type ApiCommand = {
+  id: number
+  device_id: number
+  command: string
+  payload_json: string
+  status: string
+  created_at: string
+  sent_at: string | null
+  acknowledged_at: string | null
+}
+
+export type SimulateAccessPayload = {
+  cleanroom_id: number
+  device_id?: number
+  uid: string
+  direction: 'ENTRY' | 'EXIT'
+}
+
+export type SimulateAccessResponse = {
+  allowed: boolean
+  result: string
+  reason: string | null
+  event_id: number
+  stay_minutes?: number | null
+  current_occupancy?: number
+  capacity?: number
+  auto_locked?: boolean
+}
+
+export type AddReadingPayload = {
+  device_id: number
+  cleanroom_id: number
+  metric: string
+  value: number
+  unit: string
+}
+
+export type AgentDecision = {
+  id: number
+  cleanroom_id: number | null
+  cleanroom_code?: string | null
+  device_id: number | null
+  user_id?: number | null
+  rule_code: string
+  decision_type: string
+  severity?: string
+  summary: string
+  details?: Record<string, unknown>
+  title?: string
+  detail?: string
+  created_at: string
+  [key: string]: unknown
+}
+
+export type AgentReference = {
+  type: string
+  id: number
+  label: string
+}
+
+export type PendingAgentCommand = {
+  device_id: number
+  command: string
+  payload?: Record<string, unknown>
+}
+
+export type AgentMessage = {
+  id: number
+  conversation_id?: number
+  sender: string
+  content: string
+  intent?: string | null
+  references?: AgentReference[]
+  pending_command?: PendingAgentCommand | null
+  confirmation_status: string
+  created_at: string
+}
+
+export type AgentConversation = {
+  id: number
+  title?: string | null
+  cleanroom_id?: number | null
+  created_at: string
+  updated_at?: string | null
+  messages?: AgentMessage[]
+}
+
+export type AgentChatResponse = {
+  conversation_id: number
+  user_message: AgentMessage
+  agent_message: AgentMessage
+}
+
+export type AgentConfirmResponse = {
+  message_id: number
+  confirmation_status: string
+  command_id: number | null
+  decision_id: number | null
+}
+
+export type AgentReport = {
+  id: number
+  created_by?: number
+  title: string
+  report_type?: string
+  summary_text?: string | null
+  summary?: string | null
+  cleanroom_id?: number | null
+  data?: unknown
+  created_at: string
+  [key: string]: unknown
+}
+
+export type CorrelationPoint = {
+  timestamp: string
+  occupancy: number
+  pm25: number
+}
+
+export type CorrelationResponse = {
+  coefficient_r: number | null
+  strength: string
+  pm25_max_threshold: number | null
+  points: CorrelationPoint[]
+}
+
+export type AccessPatternCluster = {
+  hour: number
+  count: number
+  cluster: string
+  cluster_label: string
+}
+
+export type ApiAccessEvent = {
+  id: number
+  user_id: number | null
+  cleanroom_id: number
+  rfid_card_id: number | null
+  source_device_id: number | null
+  event_type: string
+  direction: string
+  result: string
+  denial_reason: string | null
+  occurred_at: string
+  [key: string]: unknown
+}
+
+export type ModelResultItem = {
+  id: number
+  model_type: string
+  result_json: string
+  trained_at: string
 }
 
 export type ApiRoomParameter = {
@@ -164,9 +371,11 @@ async function refreshAccessToken(): Promise<string | null> {
   }
 }
 
-async function request<T>(path: string, init: RequestInit = {}, retry = true): Promise<T> {
+async function requestRaw(path: string, init: RequestInit = {}, retry = true): Promise<Response> {
   const headers = new Headers(init.headers)
-  headers.set('Content-Type', 'application/json')
+  if (!headers.has('Content-Type') && init.body !== undefined) {
+    headers.set('Content-Type', 'application/json')
+  }
 
   const isPublicAuthRequest = path === '/auth/login' || path === '/auth/refresh'
 
@@ -196,8 +405,7 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true): P
       const detail = await response.text()
       throw new Error(detail || `API request failed (${response.status})`)
     }
-    if (response.status === 204) return undefined as T
-    return response.json() as Promise<T>
+    return response
   }
 
   if (response.status === 401 && retry && typeof window !== 'undefined') {
@@ -206,8 +414,7 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true): P
       headers.set('Authorization', `Bearer ${refreshedToken}`)
       const retried = await fetch(`${API_BASE_URL}${path}`, { ...init, headers })
       if (retried.ok) {
-        if (retried.status === 204) return undefined as T
-        return retried.json() as Promise<T>
+        return retried
       }
       if (retried.status === 401) {
         redirectToLogin()
@@ -226,6 +433,15 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true): P
     }
     throw new Error(detail || `API request failed (${response.status})`)
   }
+  return response
+}
+
+async function request<T>(path: string, init: RequestInit = {}, retry = true): Promise<T> {
+  const headers = new Headers(init.headers)
+  if (!headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json')
+  }
+  const response = await requestRaw(path, { ...init, headers }, retry)
   if (response.status === 204) return undefined as T
   return response.json() as Promise<T>
 }
@@ -257,16 +473,47 @@ export const api = {
   permissions: () => request<unknown>('/permisos'),
   createPermission: (data: Record<string, unknown>) => request<unknown>('/permisos', { method: 'POST', body: JSON.stringify(data) }),
   updatePermission: (id: number, data: Record<string, unknown>) => request<unknown>(`/permisos/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-  accesses: () => request<unknown>('/accesos'),
+  accesses: () => request<ApiAccessEvent[]>('/accesos'),
+  commands: () => request<ApiCommand[]>('/comandos'),
+  sendCommand: (data: SendCommandPayload) => request<ApiCommand>('/comandos', { method: 'POST', body: JSON.stringify(data) }),
+  simulateAccess: (data: SimulateAccessPayload) => request<SimulateAccessResponse>('/iot/simular-acceso', { method: 'POST', body: JSON.stringify(data) }),
+  addReading: (data: AddReadingPayload) => request<{ accepted: number; readings: unknown[] }>('/monitoreo/lecturas', { method: 'POST', body: JSON.stringify(data) }),
   monitoringHistory: () => request<unknown>('/monitoreo/historico'),
   notices: () => request<unknown>('/avisos'),
   acknowledgeNotice: (id: number) => request<unknown>(`/avisos/${id}/acknowledge`, { method: 'PATCH' }),
+  agent: {
+    decisions: (params = '') => request<AgentDecision[] | { items?: AgentDecision[] }>(`/agente/decisiones${params}`),
+    conversations: () => request<AgentConversation[]>('/agente/conversaciones'),
+    conversation: (id: number) => request<AgentConversation>(`/agente/conversaciones/${id}`),
+    chat: (data: { message: string; conversation_id?: number; cleanroom_id?: number }) =>
+      request<AgentChatResponse>('/agente/chat', { method: 'POST', body: JSON.stringify(data) }),
+    confirmMessage: (id: number, action: 'CONFIRM' | 'CANCEL') =>
+      request<AgentConfirmResponse>(`/agente/mensajes/${id}/confirmar`, { method: 'POST', body: JSON.stringify({ action }) }),
+    reports: () => request<AgentReport[]>('/agente/reportes'),
+    createReport: (data?: { title?: string; cleanroom_id?: number | null }) =>
+      request<AgentReport>('/agente/reportes', { method: 'POST', body: JSON.stringify(data ?? {}) }),
+    exportReport: async (id: number, format: 'json' | 'md' | 'csv') => {
+      const response = await requestRaw(`/agente/reportes/${id}/export?format=${format}`)
+      const content = await response.text()
+      const contentType = response.headers.get('content-type') ?? (
+        format === 'json' ? 'application/json' : format === 'csv' ? 'text/csv' : 'text/markdown'
+      )
+      const ext = format === 'md' ? 'md' : format
+      return { content, contentType, filename: `reporte-cleanspace-${id}.${ext}` }
+    },
+  },
   analytics: {
     anomalies: () => request<unknown>('/analitica/anomalias'),
     indicators: () => request<unknown>('/analitica/indicadores'),
     series: (params = '') => request<unknown>(`/analitica/series${params}`),
-    accessPatterns: () => request<unknown>('/analitica/patrones-acceso'),
-    metrics: () => request<unknown>('/analitica/modelo/metricas'),
+    accessPatterns: () => request<AccessPatternCluster[]>('/analitica/patrones-acceso'),
+    metrics: () => request<ModelResultItem[]>('/analitica/modelo/metricas'),
+    correlation: (cleanroomId?: number) =>
+      request<CorrelationResponse>(`/analitica/correlacion${cleanroomId ? `?cleanroom_id=${cleanroomId}` : ''}`),
+    runEtl: () =>
+      request<{ status: string; processed_readings: number; processed_accesses: number; executed_at: string }>('/analitica/etl/ejecutar', { method: 'POST' }),
+    trainModel: () => request<ModelResultItem>('/analitica/modelo/entrenar', { method: 'POST' }),
   },
   adminSummary: () => request<unknown>('/dashboard/admin/summary'),
+  supervisorSummary: () => request<SupervisorSummary>('/dashboard/supervisor/summary'),
 }

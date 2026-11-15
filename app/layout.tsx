@@ -29,7 +29,14 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="es">
+    <html lang="es" suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: "(function(){try{if(localStorage.getItem('cleanspace_theme')==='dark'){document.documentElement.classList.add('dark')}}catch(e){}})()",
+          }}
+        />
+      </head>
       <body className={`${manrope.variable} antialiased [font-family:var(--font-manrope)]`}>
         {children}
         {process.env.NODE_ENV === 'production' && <Analytics />}

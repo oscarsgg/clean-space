@@ -1,4 +1,5 @@
 from .access import AccessEvent, AccessLog, AccessPermission, DoorPermission
+from .agent import AgentConversation, AgentDecisionLog, AgentMessage, AgentReport
 from .audit import AuditLog
 from .cleanroom import Cleanroom
 from .command import Command
@@ -15,6 +16,10 @@ __all__ = [
 	"AccessEvent",
 	"AccessLog",
 	"AccessPermission",
+	"AgentConversation",
+	"AgentDecisionLog",
+	"AgentMessage",
+	"AgentReport",
 	"Alert",
 	"AuditLog",
 	"Cleanroom",

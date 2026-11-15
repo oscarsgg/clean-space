@@ -7,12 +7,12 @@ import type { FormEvent, ReactNode } from 'react'
 import { api, getCurrentUserFromToken, saveSession } from '@/lib/api'
 import { ArrowRight, Check, CreditCard, LockKeyhole, Mail, ShieldCheck, UserRound } from 'lucide-react'
 
-function Brand() {
-  return <Link href="/" className="flex items-center gap-3"><div className="flex size-10 items-center justify-center overflow-hidden rounded-xl bg-[#dff8f5]"><img src="/custodia-logo.png" alt="Símbolo de CleanSpace" className="size-full object-cover" /></div><div><div className="font-serif text-[19px] font-semibold tracking-[-0.03em] text-[#102d3b]">CleanSpace</div><div className="text-[9px] font-semibold uppercase tracking-[0.24em] text-[#77909b]">CleanSpace</div></div></Link>
+function Brand({ light = false }: { light?: boolean }) {
+  return <Link href="/" className="flex items-center gap-3"><div className="flex size-10 items-center justify-center overflow-hidden rounded-xl bg-[#dff8f5]"><img src="/custodia-logo.png" alt="Símbolo de CleanSpace" className="size-full object-cover" /></div><div><div className={`font-serif text-[19px] font-semibold tracking-[-0.03em] ${light ? 'text-white' : 'text-[#102d3b]'}`}>CleanSpace</div><div className={`text-[9px] font-semibold uppercase tracking-[0.24em] ${light ? 'text-slate-300' : 'text-[#77909b]'}`}>CleanSpace</div></div></Link>
 }
 
 function Shell({ children, eyebrow }: { children: React.ReactNode; eyebrow: string }) {
-  return <main className="min-h-screen bg-[#f4faf9] text-[#102d3b]"><div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-5 py-6 sm:px-10 lg:grid lg:grid-cols-[0.85fr_1.15fr] lg:gap-10 lg:px-14"><section className="hidden flex-col justify-between rounded-[2rem] bg-[#102c3a] p-10 lg:flex xl:p-14"><div><Brand /><div className="mt-28 max-w-md"><p className="text-xs font-bold uppercase tracking-[0.24em] text-[#83d5cc]">{eyebrow}</p><h1 className="mt-5 font-serif text-5xl leading-[1.05] tracking-[-0.04em] text-white xl:text-6xl">El control empieza con una identidad.</h1><p className="mt-6 text-base leading-relaxed text-slate-300">Accesos claros, trazables y pensados para proteger cada operación dentro del cuarto limpio.</p></div></div><p className="text-xs text-slate-400">CleanSpace protege la operación crítica · v1.0</p></section><section className="flex flex-1 flex-col"><div className="flex items-center justify-between"><Brand /><span className="hidden text-xs font-medium text-[#91a5ab] sm:block">¿Necesitas ayuda? Contacta a soporte</span></div><div className="mx-auto flex w-full max-w-[480px] flex-1 flex-col justify-center py-12">{children}</div></section></div></main>
+  return <main className="min-h-screen bg-[#f4faf9] text-[#102d3b]"><div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-5 py-6 sm:px-10 lg:grid lg:grid-cols-[0.85fr_1.15fr] lg:gap-10 lg:px-14"><section className="hidden flex-col justify-between rounded-[2rem] bg-[#102c3a] p-10 lg:flex xl:p-14"><div><Brand light /><div className="mt-28 max-w-md"><p className="text-xs font-bold uppercase tracking-[0.24em] text-[#83d5cc]">{eyebrow}</p><h1 className="mt-5 font-serif text-5xl leading-[1.05] tracking-[-0.04em] text-white xl:text-6xl">El control empieza con una identidad.</h1><p className="mt-6 text-base leading-relaxed text-slate-300">Accesos claros, trazables y pensados para proteger cada operación dentro del cuarto limpio.</p></div></div><p className="text-xs text-slate-400">CleanSpace protege la operación crítica · v1.0</p></section><section className="flex flex-1 flex-col"><div className="flex items-center justify-between"><Brand /><span className="hidden text-xs font-medium text-[#91a5ab] sm:block">¿Necesitas ayuda? Contacta a soporte</span></div><div className="mx-auto flex w-full max-w-[480px] flex-1 flex-col justify-center py-12">{children}</div></section></div></main>
 }
 
 export function LoginPage() {
@@ -35,7 +35,31 @@ export function LoginPage() {
     }
   }, [])
 
-  const submit = async (event: React.FormEvent<HTMLFormElement>) => { event.preventDefault(); setError(''); setLoading(true); if (typeof window !== 'undefined') window.sessionStorage.removeItem('auth_session_message'); const form = new FormData(event.currentTarget); try { const session = await api.login(String(form.get('email')), String(form.get('password'))); saveSession(session); router.push('/admin/dashboard') } catch (cause) { setError(cause instanceof Error ? 'Correo o contraseña inválidos, o API no disponible.' : 'No fue posible iniciar sesión.') } finally { setLoading(false) } }
+  const resolveDefaultRoute = (rolesInput: unknown) => {
+    const roles = Array.isArray(rolesInput) ? rolesInput.map((item) => String(item).toUpperCase()) : []
+    if (roles.includes('ADMINISTRADOR')) return '/admin/dashboard'
+    if (roles.includes('SUPERVISOR')) return '/supervisor/dashboard'
+    return '/acceso/cuarto-01'
+  }
+
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setError('')
+    setLoading(true)
+    if (typeof window !== 'undefined') window.sessionStorage.removeItem('auth_session_message')
+    const form = new FormData(event.currentTarget)
+    try {
+      const session = await api.login(String(form.get('email')), String(form.get('password')))
+      saveSession(session)
+      const tokenPayload = getCurrentUserFromToken()
+      const roles = session.user?.roles ?? tokenPayload?.roles
+      router.push(resolveDefaultRoute(roles))
+    } catch (cause) {
+      setError(cause instanceof Error ? 'Correo o contraseña inválidos, o API no disponible.' : 'No fue posible iniciar sesión.')
+    } finally {
+      setLoading(false)
+    }
+  }
   return <Shell eyebrow="Acceso institucional"><div><p className="text-sm font-semibold text-[#0d9691]">Bienvenido a CleanSpace</p><h2 className="mt-2 text-3xl font-semibold tracking-tight">Ingresa con tus credenciales</h2><p className="mt-2 text-sm leading-relaxed text-[#718995]">Usa tu correo institucional y contraseña para entrar al sistema.</p></div>{sessionMessage && <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 shadow-sm">{sessionMessage}</div>}<div className="mt-8 rounded-3xl border border-[#dcebea] bg-white p-5 shadow-[0_14px_36px_rgba(18,49,66,0.06)] sm:p-6"><div className="mb-5 flex items-center gap-3"><div className="flex size-9 items-center justify-center rounded-xl bg-[#e4f6f3] text-[#087f7b]"><LockKeyhole className="size-4" /></div><div><p className="text-sm font-semibold text-[#29434e]">Acceso seguro</p><p className="text-xs text-[#8a9da5]">Sesión protegida con JWT</p></div></div><form onSubmit={submit} className="flex flex-col gap-5"><label className="flex flex-col gap-2 text-sm font-semibold text-[#36515b]">Correo institucional<div className="relative"><Mail className="absolute left-4 top-1/2 size-4 -translate-y-1/2 text-[#91a5ab]" /><input required type="email" name="email" placeholder="nombre@organizacion.com" className="w-full rounded-xl border border-[#d8e6e6] bg-white py-3.5 pl-11 pr-4 font-normal outline-none focus:border-[#087f7b] focus:ring-4 focus:ring-[#087f7b]/10" /></div></label><label className="flex flex-col gap-2 text-sm font-semibold text-[#36515b]">Contraseña<div className="relative"><LockKeyhole className="absolute left-4 top-1/2 size-4 -translate-y-1/2 text-[#91a5ab]" /><input required name="password" type="password" placeholder="••••••••" className="w-full rounded-xl border border-[#d8e6e6] bg-white py-3.5 pl-11 pr-4 font-normal outline-none focus:border-[#087f7b] focus:ring-4 focus:ring-[#087f7b]/10" /></div></label>{error && <p className="text-sm text-red-600">{error}</p>}<button type="submit" className="flex items-center justify-center gap-2 rounded-xl bg-[#087f7b] px-4 py-3.5 text-sm font-semibold text-white shadow-[0_6px_16px_rgba(8,127,123,0.22)] transition hover:bg-[#066c69]">{loading ? 'Conectando...' : 'Ingresar al sistema'} <ArrowRight className="size-4" /></button></form></div><div className="mt-8 flex items-start gap-3 rounded-xl border border-[#dcebea] bg-white/70 p-4"><ShieldCheck className="mt-0.5 size-5 shrink-0 text-[#087f7b]" /><p className="text-xs leading-relaxed text-[#718995]">Tu sesión queda protegida y cada acción se registra para mantener la trazabilidad.</p></div><Link href="/acceso/cuarto-01" className="mt-6 text-center text-sm font-semibold text-[#087f7b] hover:underline">¿Acceso físico? Usa el lector RFID</Link></Shell>
 }
 
