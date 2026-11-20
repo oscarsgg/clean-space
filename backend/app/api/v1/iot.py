@@ -162,6 +162,8 @@ def process_access_validation(
     direction: str = "ENTRY",
 ) -> dict:
     normalized_direction = direction.upper() if direction else "ENTRY"
+    if normalized_direction not in {"ENTRY", "EXIT"}:
+        raise HTTPException(422, "La dirección debe ser ENTRY o EXIT")
     cleanroom = db.get(Cleanroom, device.cleanroom_id)
     room_code = cleanroom.code if cleanroom else f"SALA-{device.cleanroom_id}"
     room_capacity = cleanroom.capacity if cleanroom else 8

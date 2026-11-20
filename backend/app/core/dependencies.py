@@ -151,6 +151,12 @@ def ensure_room_access(user: User, room_id: int):
         raise HTTPException(403, "No tienes acceso a este cuarto")
 
 
+def accessible_room_ids(user: User):
+    if "ADMINISTRADOR" in {role.code for role in user.roles}:
+        return None
+    return [room.id for room in user.assigned_cleanrooms]
+
+
 def require_admin_key(x_admin_key: str = Header(default="")):
     expected_key = settings.cleanspace_admin_key
     if not expected_key:

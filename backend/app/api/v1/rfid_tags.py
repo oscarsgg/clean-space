@@ -3,6 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.rfid import normalize_rfid_uid
+from app.core.dependencies import require
 from app.db.database import get_db
 from app.models.employee import Employee
 from app.models.rfid_tag import RfidTag
@@ -13,7 +14,7 @@ router = APIRouter(prefix="/rfid-tags", tags=["RFID tags"])
 
 
 @router.post("/", response_model=RfidTagRead, status_code=status.HTTP_201_CREATED)
-def create_rfid_tag(tag_data: RfidTagCreate, session: Session = Depends(get_db)):
+def create_rfid_tag(tag_data: RfidTagCreate, session: Session = Depends(get_db), user=Depends(require("ADMINISTRADOR"))):
     uid = normalize_rfid_uid(tag_data.uid)
     if session.get(RfidTag, uid) is not None:
         raise HTTPException(status_code=409, detail="El tag RFID ya existe")
@@ -28,12 +29,12 @@ def create_rfid_tag(tag_data: RfidTagCreate, session: Session = Depends(get_db))
 
 
 @router.get("/", response_model=list[RfidTagRead])
-def get_rfid_tags(session: Session = Depends(get_db)):
+def get_rfid_tags(session: Session = Depends(get_db), user=Depends(require("ADMINISTRADOR", "SUPERVISOR"))):
     return session.scalars(select(RfidTag)).all()
 
 
 @router.get("/{uid}", response_model=RfidTagRead)
-def get_rfid_tag(uid: str, session: Session = Depends(get_db)):
+def get_rfid_tag(uid: str, session: Session = Depends(get_db), user=Depends(require("ADMINISTRADOR", "SUPERVISOR"))):
     tag = session.get(RfidTag, normalize_rfid_uid(uid))
     if tag is None:
         raise HTTPException(status_code=404, detail="Tag RFID no encontrado")
@@ -45,6 +46,7 @@ def update_rfid_tag(
     uid: str,
     tag_data: RfidTagUpdate,
     session: Session = Depends(get_db),
+    user=Depends(require("ADMINISTRADOR")),
 ):
     tag = session.get(RfidTag, normalize_rfid_uid(uid))
     if tag is None:
@@ -61,7 +63,7 @@ def update_rfid_tag(
 
 
 @router.delete("/{uid}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_rfid_tag(uid: str, session: Session = Depends(get_db)):
+def delete_rfid_tag(uid: str, session: Session = Depends(get_db), user=Depends(require("ADMINISTRADOR"))):
     tag = session.get(RfidTag, normalize_rfid_uid(uid))
     if tag is None:
         raise HTTPException(status_code=404, detail="Tag RFID no encontrado")

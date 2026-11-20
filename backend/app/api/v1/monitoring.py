@@ -6,7 +6,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from app.api.v1.iot import telemetry
-from app.core.dependencies import current_user, ensure_room_access, output, require, utcnow
+from app.core.dependencies import accessible_room_ids, current_user, ensure_room_access, output, require, utcnow
 from app.core.security import create_token
 from app.db.database import get_db
 from app.models import AccessEvent, Alert, Command, Device, SensorReading
@@ -20,7 +20,11 @@ router = APIRouter(tags=["Monitoring"])
 
 @router.get("/comandos")
 def commands(db: Session = Depends(get_db), user=Depends(require("ADMINISTRADOR", "SUPERVISOR"))):
-    query = select(Command).order_by(desc(Command.created_at)).limit(200)
+    query = select(Command).join(Device, Device.id == Command.device_id)
+    room_ids = accessible_room_ids(user)
+    if room_ids is not None:
+        query = query.where(Device.cleanroom_id.in_(room_ids)) if room_ids else query.where(False)
+    query = query.order_by(desc(Command.created_at)).limit(200)
     return output(db.scalars(query).all())
 
 
@@ -75,6 +79,10 @@ def readings(
     if cleanroom_id is not None:
         ensure_room_access(user, cleanroom_id)
         query = query.where(SensorReading.cleanroom_id == cleanroom_id)
+    else:
+        room_ids = accessible_room_ids(user)
+        if room_ids is not None:
+            query = query.where(SensorReading.cleanroom_id.in_(room_ids)) if room_ids else query.where(False)
     return output(db.scalars(query).all())
 
 
@@ -91,12 +99,18 @@ def access_events(
         .offset((page - 1) * size)
         .limit(size)
     )
+    room_ids = accessible_room_ids(user)
+    if room_ids is not None:
+        query = query.where(AccessEvent.cleanroom_id.in_(room_ids)) if room_ids else query.where(False)
     return output(db.scalars(query).all())
 
 
 @router.get("/avisos")
 def alerts(db: Session = Depends(get_db), user=Depends(current_user)):
     query = select(Alert).order_by(desc(Alert.created_at)).limit(100)
+    room_ids = accessible_room_ids(user)
+    if room_ids is not None:
+        query = query.where(Alert.cleanroom_id.in_(room_ids)) if room_ids else query.where(False)
     return output(db.scalars(query).all())
 
 
@@ -109,6 +123,7 @@ def acknowledge(
     item = db.get(Alert, id)
     if not item:
         raise HTTPException(404, "Aviso no encontrado")
+    ensure_room_access(user, item.cleanroom_id)
     item.status = "ACKNOWLEDGED"
     item.acknowledged_by = user.id
     item.acknowledged_at = utcnow()

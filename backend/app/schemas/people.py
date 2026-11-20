@@ -6,6 +6,8 @@ class PersonIn(BaseModel):
     password: str = Field(min_length=12)
     full_name: str = Field(min_length=2, max_length=150)
     role_codes: list[str] = Field(default_factory=lambda: ["PERSONAL_AUTORIZADO"])
+    rfid_uid: str | None = Field(default=None, min_length=4, max_length=64)
+    card_label: str = Field(default="", max_length=80)
 
 
 class PersonUpdate(BaseModel):

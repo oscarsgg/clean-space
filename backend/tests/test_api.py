@@ -104,9 +104,35 @@ def test_login_accepts_oauth2_form():
     assert response.status_code == 200
     assert response.json()["user"]["email"] == "admin@cleanspace.com"
 
+
+def _login_admin(client: TestClient) -> dict[str, str]:
+    db = SessionLocal()
+    role = db.scalar(select(Role).where(Role.code == "ADMINISTRADOR"))
+    if not role:
+        role = Role(code="ADMINISTRADOR", name="Administrador")
+        db.add(role)
+        db.commit()
+        db.refresh(role)
+    user = db.scalar(select(User).where(User.email == "admin@cleanspace.com"))
+    if not user:
+        user = User(email="admin@cleanspace.com", password_hash=hash_password("Admin_123456!"), full_name="Test Admin")
+        user.roles = [role]
+        db.add(user)
+        db.commit()
+    db.close()
+
+    response = client.post(
+        "/api/v1/auth/login",
+        data={"username": "admin@cleanspace.com", "password": "Admin_123456!"},
+    )
+    assert response.status_code == 200
+    return {"Authorization": f"Bearer {response.json()['access_token']}"}
+
+
 def test_employee_and_rfid_tag_crud():
     client = TestClient(app)
-    employee_response = client.post("/api/v1/employees/", json={
+    auth_headers = _login_admin(client)
+    employee_response = client.post("/api/v1/employees/", headers=auth_headers, json={
         "firstName": "Ana",
         "lastName": "Lopez",
         "department": "Limpieza",
@@ -116,19 +142,20 @@ def test_employee_and_rfid_tag_crud():
     assert employee["isActive"] is True
 
     uid = f"A1:{uuid4().hex[:8]}"
-    tag_response = client.post("/api/v1/rfid-tags/", json={
+    tag_response = client.post("/api/v1/rfid-tags/", headers=auth_headers, json={
         "uid": uid,
         "employee_id": employee["id"],
     })
     assert tag_response.status_code == 201
     assert tag_response.json()["uid"] == uid.replace(":", "").upper()
 
-    get_response = client.get(f"/api/v1/rfid-tags/{uid.lower()}")
+    get_response = client.get(f"/api/v1/rfid-tags/{uid.lower()}", headers=auth_headers)
     assert get_response.status_code == 200
     assert get_response.json()["employee_id"] == employee["id"]
 
     update_response = client.put(
         f"/api/v1/rfid-tags/{uid}",
+        headers=auth_headers,
         json={"isActive": False},
     )
     assert update_response.status_code == 200
@@ -138,8 +165,9 @@ def test_access_logs_permissions_and_device_endpoints():
     client = TestClient(app)
     admin_headers = {"X-Admin-Key": "test-admin-api-key-123456"}
     device_headers = {"X-Device-Key": "test-device-api-key-123456"}
+    auth_headers = _login_admin(client)
 
-    employee_response = client.post("/api/v1/employees/", json={
+    employee_response = client.post("/api/v1/employees/", headers=auth_headers, json={
         "firstName": "Eva",
         "lastName": "Ruiz",
         "department": "Operaciones",
@@ -149,7 +177,7 @@ def test_access_logs_permissions_and_device_endpoints():
 
     uid = f"B2:{uuid4().hex[:8]}"
     normalized_uid = uid.replace(":", "").upper()
-    tag_response = client.post("/api/v1/rfid-tags/", json={
+    tag_response = client.post("/api/v1/rfid-tags/", headers=auth_headers, json={
         "uid": uid,
         "employee_id": employee_id,
     })
@@ -182,13 +210,13 @@ def test_access_logs_permissions_and_device_endpoints():
     assert access_response.status_code == 200
     assert access_response.json()["authorized"] is True
 
-    log_response = client.post("/api/v1/access-logs/", json={
+    log_response = client.post("/api/v1/access-logs/", headers=auth_headers, json={
         "rfid_uid": normalized_uid,
         "render_id": "DOOR-1",
         "access_status": "granted",
     })
     assert log_response.status_code == 201
-    assert client.get("/api/v1/access-logs/").status_code == 200
+    assert client.get("/api/v1/access-logs/", headers=auth_headers).status_code == 200
 
     offline_response = client.post(
         "/api/v1/device/events",

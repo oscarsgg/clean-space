@@ -21,7 +21,7 @@ class PermissionUpdate(BaseModel):
 class AccessValidationIn(BaseModel):
     device_id: int
     uid: str
-    direction: str = "ENTRY"
+    direction: Literal["ENTRY", "EXIT"] = "ENTRY"
 
 
 class AccessSimulationIn(BaseModel):

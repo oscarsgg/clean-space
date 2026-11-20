@@ -3,9 +3,8 @@
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
-import type { FormEvent, ReactNode } from 'react'
-import { api, getCurrentUserFromToken, saveSession } from '@/lib/api'
-import { ArrowRight, Check, CreditCard, LockKeyhole, Mail, ShieldCheck, UserRound } from 'lucide-react'
+import { api, clearSession, getCurrentUserFromToken, saveSession } from '@/lib/api'
+import { ArrowRight, CreditCard, LockKeyhole, Mail, ShieldCheck } from 'lucide-react'
 
 function Brand({ light = false }: { light?: boolean }) {
   return <Link href="/" className="flex items-center gap-3"><div className="flex size-10 items-center justify-center overflow-hidden rounded-xl bg-[#dff8f5]"><img src="/custodia-logo.png" alt="Símbolo de CleanSpace" className="size-full object-cover" /></div><div><div className={`font-serif text-[19px] font-semibold tracking-[-0.03em] ${light ? 'text-white' : 'text-[#102d3b]'}`}>CleanSpace</div><div className={`text-[9px] font-semibold uppercase tracking-[0.24em] ${light ? 'text-slate-300' : 'text-[#77909b]'}`}>CleanSpace</div></div></Link>
@@ -39,7 +38,7 @@ export function LoginPage() {
     const roles = Array.isArray(rolesInput) ? rolesInput.map((item) => String(item).toUpperCase()) : []
     if (roles.includes('ADMINISTRADOR')) return '/admin/dashboard'
     if (roles.includes('SUPERVISOR')) return '/supervisor/dashboard'
-    return '/acceso/cuarto-01'
+    return null
   }
 
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -50,56 +49,29 @@ export function LoginPage() {
     const form = new FormData(event.currentTarget)
     try {
       const session = await api.login(String(form.get('email')), String(form.get('password')))
+      const roles = session.user?.roles ?? getCurrentUserFromToken()?.roles
+      const destination = resolveDefaultRoute(roles)
+      if (!destination) {
+        clearSession()
+        setError('Tu cuenta no tiene acceso al portal web. Usa tu credencial en el lector RFID.')
+        return
+      }
       saveSession(session)
-      const tokenPayload = getCurrentUserFromToken()
-      const roles = session.user?.roles ?? tokenPayload?.roles
-      router.push(resolveDefaultRoute(roles))
+      router.push(destination)
     } catch (cause) {
       setError(cause instanceof Error ? 'Correo o contraseña inválidos, o API no disponible.' : 'No fue posible iniciar sesión.')
     } finally {
       setLoading(false)
     }
   }
+
   return <Shell eyebrow="Acceso institucional"><div><p className="text-sm font-semibold text-[#0d9691]">Bienvenido a CleanSpace</p><h2 className="mt-2 text-3xl font-semibold tracking-tight">Ingresa con tus credenciales</h2><p className="mt-2 text-sm leading-relaxed text-[#718995]">Usa tu correo institucional y contraseña para entrar al sistema.</p></div>{sessionMessage && <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 shadow-sm">{sessionMessage}</div>}<div className="mt-8 rounded-3xl border border-[#dcebea] bg-white p-5 shadow-[0_14px_36px_rgba(18,49,66,0.06)] sm:p-6"><div className="mb-5 flex items-center gap-3"><div className="flex size-9 items-center justify-center rounded-xl bg-[#e4f6f3] text-[#087f7b]"><LockKeyhole className="size-4" /></div><div><p className="text-sm font-semibold text-[#29434e]">Acceso seguro</p><p className="text-xs text-[#8a9da5]">Sesión protegida con JWT</p></div></div><form onSubmit={submit} className="flex flex-col gap-5"><label className="flex flex-col gap-2 text-sm font-semibold text-[#36515b]">Correo institucional<div className="relative"><Mail className="absolute left-4 top-1/2 size-4 -translate-y-1/2 text-[#91a5ab]" /><input required type="email" name="email" placeholder="nombre@organizacion.com" className="w-full rounded-xl border border-[#d8e6e6] bg-white py-3.5 pl-11 pr-4 font-normal outline-none focus:border-[#087f7b] focus:ring-4 focus:ring-[#087f7b]/10" /></div></label><label className="flex flex-col gap-2 text-sm font-semibold text-[#36515b]">Contraseña<div className="relative"><LockKeyhole className="absolute left-4 top-1/2 size-4 -translate-y-1/2 text-[#91a5ab]" /><input required name="password" type="password" placeholder="••••••••" className="w-full rounded-xl border border-[#d8e6e6] bg-white py-3.5 pl-11 pr-4 font-normal outline-none focus:border-[#087f7b] focus:ring-4 focus:ring-[#087f7b]/10" /></div></label>{error && <p className="text-sm text-red-600">{error}</p>}<button type="submit" className="flex items-center justify-center gap-2 rounded-xl bg-[#087f7b] px-4 py-3.5 text-sm font-semibold text-white shadow-[0_6px_16px_rgba(8,127,123,0.22)] transition hover:bg-[#066c69]">{loading ? 'Conectando...' : 'Ingresar al sistema'} <ArrowRight className="size-4" /></button></form></div><div className="mt-8 flex items-start gap-3 rounded-xl border border-[#dcebea] bg-white/70 p-4"><ShieldCheck className="mt-0.5 size-5 shrink-0 text-[#087f7b]" /><p className="text-xs leading-relaxed text-[#718995]">Tu sesión queda protegida y cada acción se registra para mantener la trazabilidad.</p></div><Link href="/acceso/cuarto-01" className="mt-6 text-center text-sm font-semibold text-[#087f7b] hover:underline">¿Acceso físico? Usa el lector RFID</Link></Shell>
 }
 
 export function RfidAccessPage({ cuartoId }: { cuartoId: string }) {
-  const router = useRouter()
-  const [reading, setReading] = useState(false)
-  const start = () => { setReading(true); window.setTimeout(() => router.push(`/acceso/${cuartoId}/confirmado`), 1000) }
-  return <Shell eyebrow="Acceso físico"><div><p className="text-sm font-semibold text-[#0d9691]">Lector RFID · {cuartoId}</p><h2 className="mt-2 text-3xl font-semibold tracking-tight">Acerca tu tarjeta</h2><p className="mt-2 text-sm leading-relaxed text-[#718995]">El sistema identificará tu perfil y validará el permiso de entrada.</p></div><div className="mt-8 flex flex-col items-center rounded-3xl border border-[#dcebea] bg-white p-8 text-center shadow-[0_12px_30px_rgba(18,49,66,0.05)]"><div className={`flex size-28 items-center justify-center rounded-full border-8 ${reading ? 'animate-pulse border-[#83d5cc] bg-[#e7f7f5]' : 'border-[#dff1ef] bg-[#f4faf9]'}`}><CreditCard className="size-12 text-[#087f7b]" /></div><p className="mt-6 font-semibold text-[#163542]">{reading ? 'Leyendo tarjeta...' : 'Lector listo'}</p><p className="mt-2 text-sm text-[#718995]">{reading ? 'Validando identidad y permisos' : 'Simulación disponible para esta versión'}</p><button onClick={start} disabled={reading} className="mt-7 flex items-center gap-2 rounded-xl bg-[#087f7b] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#066c69] disabled:cursor-wait disabled:opacity-70">{reading ? 'Validando...' : 'Simular lectura RFID'} <ArrowRight className="size-4" /></button></div><Link href="/login" className="mt-6 text-center text-sm font-semibold text-[#087f7b] hover:underline">Ingresar con correo y contraseña</Link></Shell>
+  return <Shell eyebrow="Acceso físico"><div><p className="text-sm font-semibold text-[#0d9691]">Lector RFID · {cuartoId}</p><h2 className="mt-2 text-3xl font-semibold tracking-tight">Validación de acceso</h2><p className="mt-2 text-sm leading-relaxed text-[#718995]">La autorización se realiza cuando el lector físico envía el UID a CleanSpace. Esta página no puede leer ni simular una tarjeta.</p></div><div className="mt-8 flex flex-col items-center rounded-3xl border border-[#dcebea] bg-white p-8 text-center shadow-[0_12px_30px_rgba(18,49,66,0.05)]"><div className="flex size-28 items-center justify-center rounded-full border-8 border-[#dff1ef] bg-[#f4faf9]"><CreditCard className="size-12 text-[#087f7b]" /></div><p className="mt-6 font-semibold text-[#163542]">Se requiere un lector registrado</p><p className="mt-2 max-w-sm text-sm text-[#718995]">El dispositivo debe autenticarse en la API y validar la tarjeta contra los permisos vigentes del cuarto. Si el lector no está conectado, no se concede acceso.</p><div role="note" className="mt-5 rounded-xl bg-[#f7fbfb] px-4 py-3 text-left text-xs leading-relaxed text-[#58727c]">Endpoint para el firmware del dispositivo: <code>POST /api/v1/iot/acceso/validar</code></div></div><Link href="/login" className="mt-6 text-center text-sm font-semibold text-[#087f7b] hover:underline">Ingresar con correo y contraseña</Link></Shell>
 }
 
 export function RfidConfirmedPage({ cuartoId }: { cuartoId: string }) {
-  const [userName, setUserName] = useState('Usuario')
-  const [userRole, setUserRole] = useState('Personal autorizado')
-
-  useEffect(() => {
-    let active = true
-
-    const loadProfile = async () => {
-      try {
-        const response = await api.me()
-        if (!active) return
-        const name = typeof response?.name === 'string' ? response.name : typeof response?.full_name === 'string' ? response.full_name : typeof response?.email === 'string' ? response.email.split('@')[0] : 'Usuario'
-        const role = typeof response?.role === 'string' ? response.role : 'Personal autorizado'
-        setUserName(name)
-        setUserRole(role)
-      } catch {
-        const payload = getCurrentUserFromToken()
-        if (!active) return
-        if (payload) {
-          const name = typeof payload.name === 'string' ? payload.name : typeof payload.full_name === 'string' ? payload.full_name : typeof payload.email === 'string' ? payload.email.split('@')[0] : 'Usuario'
-          const role = typeof payload.role === 'string' ? payload.role : 'Personal autorizado'
-          setUserName(name)
-          setUserRole(role)
-        }
-      }
-    }
-
-    loadProfile()
-    return () => { active = false }
-  }, [])
-
-  return <Shell eyebrow="Identidad verificada"><div className="text-center"><div className="mx-auto flex size-16 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><Check className="size-8" /></div><p className="mt-6 text-sm font-semibold text-[#0d9691]">Acceso autorizado</p><h2 className="mt-2 text-3xl font-semibold tracking-tight">Identidad confirmada</h2><p className="mt-2 text-sm leading-relaxed text-[#718995]">La tarjeta RFID fue reconocida. Estos son los datos visibles para la operación.</p></div><div className="mt-8 rounded-3xl border border-[#dcebea] bg-white p-6 shadow-[0_12px_30px_rgba(18,49,66,0.05)]"><div className="flex items-center gap-4"><img src="/placeholder-user.jpg" alt={`Foto de ${userName}`} className="size-20 rounded-2xl object-cover" /><div><p className="text-xl font-semibold text-[#163542]">{userName}</p><p className="text-sm text-[#718995]">{userRole}</p></div></div><div className="mt-6 grid gap-4 border-t border-[#edf2f3] pt-5 sm:grid-cols-2"><div><p className="text-xs font-medium text-[#91a5ab]">Área</p><p className="mt-1 text-sm font-semibold text-[#36515b]">Operaciones</p></div><div><p className="text-xs font-medium text-[#91a5ab]">Cuarto solicitado</p><p className="mt-1 text-sm font-semibold text-[#36515b]">{cuartoId}</p></div><div><p className="text-xs font-medium text-[#91a5ab]">Nivel de autorización</p><p className="mt-1 text-sm font-semibold text-[#36515b]">Nivel 2 · Operativo</p></div><div><p className="text-xs font-medium text-[#91a5ab]">Estado</p><p className="mt-1 text-sm font-semibold text-emerald-700">Vigente</p></div></div></div><Link href="/admin/dashboard" className="mt-6 flex items-center justify-center gap-2 rounded-xl bg-[#087f7b] px-4 py-3.5 text-sm font-semibold text-white hover:bg-[#066c69]">Continuar al sistema <ArrowRight className="size-4" /></Link></Shell>
+  return <Shell eyebrow="Acceso físico"><div className="text-center"><div className="mx-auto flex size-16 items-center justify-center rounded-full bg-amber-100 text-amber-700"><CreditCard className="size-7" /></div><p className="mt-6 text-sm font-semibold text-amber-700">Sin lectura asociada</p><h2 className="mt-2 text-3xl font-semibold tracking-tight">No se confirmó el acceso</h2><p className="mt-2 text-sm leading-relaxed text-[#718995]">Esta ruta no representa una autorización. El resultado válido se genera y registra únicamente al validar el UID mediante el dispositivo autenticado del cuarto {cuartoId}.</p></div><Link href={`/acceso/${encodeURIComponent(cuartoId)}`} className="mt-6 flex items-center justify-center gap-2 rounded-xl bg-[#087f7b] px-4 py-3.5 text-sm font-semibold text-white hover:bg-[#066c69]">Volver al estado del lector <ArrowRight className="size-4" /></Link></Shell>
 }

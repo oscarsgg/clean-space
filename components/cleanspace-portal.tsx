@@ -193,6 +193,7 @@ function Content({ path }: { path: string }) {
   return <EcbdAnalytics />
 }
 
+
 export default function CleanSpacePortal({ role = 'admin' }: { role?: 'admin' | 'supervisor' }) {
   const pathname = usePathname()
   const router = useRouter()
