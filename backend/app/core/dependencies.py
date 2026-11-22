@@ -2,7 +2,7 @@ import hmac
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
@@ -33,7 +33,7 @@ from app.models import (
 
 
 settings = get_settings()
-oauth2 = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+oauth2 = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
 
 
 def utcnow():
@@ -80,7 +80,12 @@ def user_out(user):
     }
 
 
-def current_user(token: str = Depends(oauth2), db: Session = Depends(get_db)):
+def current_user(
+    request: Request,
+    token: str | None = Depends(oauth2),
+    db: Session = Depends(get_db),
+):
+    token = token or request.cookies.get("cleanspace_route_session")
     payload = decode_token(token, "access")
     user = db.get(User, int(payload["sub"])) if payload else None
     if not user or user.status != "ACTIVE":

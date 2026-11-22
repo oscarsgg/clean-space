@@ -60,8 +60,17 @@ def compute_room_occupancy(
     return inside
 
 
-def get_supervisor_summary(db: Session, user: User) -> dict[str, Any]:
+def get_supervisor_summary(
+    db: Session,
+    user: User,
+    cleanroom_id: int | None = None,
+    start_at: datetime | None = None,
+    end_at: datetime | None = None,
+) -> dict[str, Any]:
     rooms = accessible_rooms(db, user)
+    if cleanroom_id is not None:
+        ensure_room_access(user, cleanroom_id)
+        rooms = [room for room in rooms if room.id == cleanroom_id]
     room_ids = [room.id for room in rooms]
     if not room_ids:
         return {
@@ -72,16 +81,23 @@ def get_supervisor_summary(db: Session, user: User) -> dict[str, Any]:
             "current_occupancy": 0,
             "active_alerts": 0,
             "rooms": [],
+            "access_series": [],
+            "environment_series": [],
         }
 
+    event_filters = [AccessEvent.cleanroom_id.in_(room_ids)]
+    if start_at is not None:
+        event_filters.append(AccessEvent.occurred_at >= start_at)
+    if end_at is not None:
+        event_filters.append(AccessEvent.occurred_at < end_at)
     total_events = (
-        db.scalar(select(func.count(AccessEvent.id)).where(AccessEvent.cleanroom_id.in_(room_ids)))
+        db.scalar(select(func.count(AccessEvent.id)).where(*event_filters))
         or 0
     )
     entries = (
         db.scalar(
             select(func.count(AccessEvent.id)).where(
-                AccessEvent.cleanroom_id.in_(room_ids), AccessEvent.direction == "ENTRY"
+                *event_filters, AccessEvent.direction == "ENTRY"
             )
         )
         or 0
@@ -89,7 +105,7 @@ def get_supervisor_summary(db: Session, user: User) -> dict[str, Any]:
     exits = (
         db.scalar(
             select(func.count(AccessEvent.id)).where(
-                AccessEvent.cleanroom_id.in_(room_ids), AccessEvent.direction == "EXIT"
+                *event_filters, AccessEvent.direction == "EXIT"
             )
         )
         or 0
@@ -97,7 +113,7 @@ def get_supervisor_summary(db: Session, user: User) -> dict[str, Any]:
     denied = (
         db.scalar(
             select(func.count(AccessEvent.id)).where(
-                AccessEvent.cleanroom_id.in_(room_ids), AccessEvent.result == "DENIED"
+                *event_filters, AccessEvent.result == "DENIED"
             )
         )
         or 0
@@ -113,6 +129,35 @@ def get_supervisor_summary(db: Session, user: User) -> dict[str, Any]:
 
     room_cards: list[dict[str, Any]] = []
     total_occupancy = 0
+    access_events = db.scalars(
+        select(AccessEvent).where(*event_filters).order_by(AccessEvent.occurred_at.asc(), AccessEvent.id.asc())
+    ).all()
+    bucket_counts: dict[str, dict[str, int]] = {}
+    for event in access_events:
+        key = as_utc(event.occurred_at).strftime("%Y-%m-%d")
+        bucket = bucket_counts.setdefault(key, {"allowed": 0, "denied": 0})
+        bucket["allowed" if event.result == "ALLOWED" else "denied"] += 1
+    access_series = [
+        {"date": date, **counts} for date, counts in sorted(bucket_counts.items())
+    ]
+    readings_query = select(SensorReading).where(SensorReading.cleanroom_id.in_(room_ids))
+    if start_at is not None:
+        readings_query = readings_query.where(SensorReading.recorded_at >= start_at)
+    if end_at is not None:
+        readings_query = readings_query.where(SensorReading.recorded_at < end_at)
+    readings = db.scalars(
+        readings_query.order_by(SensorReading.recorded_at.asc(), SensorReading.id.asc()).limit(5000)
+    ).all()
+    reading_buckets: dict[tuple[str, str, str], list[float]] = {}
+    for reading in readings:
+        key = (as_utc(reading.recorded_at).strftime("%Y-%m-%d"), reading.metric, reading.unit)
+        values = reading_buckets.setdefault(key, [0.0, 0.0])
+        values[0] += float(reading.value)
+        values[1] += 1
+    environment_series = [
+        {"date": date_key, "metric": metric, "unit": unit, "average": round(total / count, 2), "count": int(count)}
+        for (date_key, metric, unit), (total, count) in sorted(reading_buckets.items())
+    ]
 
     for room in rooms:
         inside_map = compute_room_occupancy(db, room.id)
@@ -211,6 +256,12 @@ def get_supervisor_summary(db: Session, user: User) -> dict[str, Any]:
         "current_occupancy": total_occupancy,
         "active_alerts": active_alerts,
         "rooms": room_cards,
+        "access_series": access_series,
+        "environment_series": environment_series,
+        "period": {
+            "start_at": as_utc(start_at).isoformat() if start_at else None,
+            "end_at": as_utc(end_at).isoformat() if end_at else None,
+        },
     }
 
 
@@ -310,13 +361,23 @@ def compute_correlation(
     }
 
 
-def compute_access_patterns(db: Session, user: User) -> list[dict[str, Any]]:
+def compute_access_patterns(
+    db: Session, user: User, cleanroom_id: int | None = None,
+    start_at: datetime | None = None, end_at: datetime | None = None,
+) -> list[dict[str, Any]]:
     query = select(AccessEvent.occurred_at)
+    if cleanroom_id is not None:
+        ensure_room_access(user, cleanroom_id)
+        query = query.where(AccessEvent.cleanroom_id == cleanroom_id)
     if "ADMINISTRADOR" not in {role.code for role in user.roles}:
         room_ids = [room.id for room in user.assigned_cleanrooms]
         if not room_ids:
             return []
         query = query.where(AccessEvent.cleanroom_id.in_(room_ids))
+    if start_at is not None:
+        query = query.where(AccessEvent.occurred_at >= start_at)
+    if end_at is not None:
+        query = query.where(AccessEvent.occurred_at < end_at)
 
     timestamps = db.scalars(query).all()
     if not timestamps:

@@ -73,6 +73,17 @@ export type SupervisorSummary = {
   current_occupancy: number
   active_alerts: number
   rooms: SupervisorRoomSummary[]
+  access_series?: { date: string; allowed: number; denied: number }[]
+  environment_series?: { date: string; metric: string; unit: string; average: number; count: number }[]
+  period?: { start_at: string | null; end_at: string | null }
+}
+
+export type AdminSummary = SupervisorSummary & {
+  cleanrooms: number
+  active_people: number
+  devices: number
+  readings: number
+  device_status: { status: string; count: number }[]
 }
 
 export type SendCommandPayload = {
@@ -345,6 +356,7 @@ export function clearSession() {
   if (typeof window !== 'undefined') {
     window.localStorage.removeItem(ACCESS_TOKEN_COOKIE)
     window.localStorage.removeItem(REFRESH_TOKEN_COOKIE)
+    void fetch('/api/session', { method: 'DELETE', credentials: 'same-origin' }).catch(() => undefined)
   }
 }
 
@@ -357,6 +369,7 @@ async function refreshAccessToken(): Promise<string | null> {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refresh_token: refreshToken }),
+      credentials: 'include',
     })
 
     if (!refreshed.ok) return null
@@ -398,7 +411,7 @@ async function requestRaw(path: string, init: RequestInit = {}, retry = true): P
     headers.set('Authorization', `Bearer ${token}`)
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers })
+  const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers, credentials: 'include' })
 
   if (isPublicAuthRequest) {
     if (!response.ok) {
@@ -412,7 +425,7 @@ async function requestRaw(path: string, init: RequestInit = {}, retry = true): P
     const refreshedToken = await refreshAccessToken()
     if (refreshedToken) {
       headers.set('Authorization', `Bearer ${refreshedToken}`)
-      const retried = await fetch(`${API_BASE_URL}${path}`, { ...init, headers })
+      const retried = await fetch(`${API_BASE_URL}${path}`, { ...init, headers, credentials: 'include' })
       if (retried.ok) {
         return retried
       }
@@ -503,10 +516,10 @@ export const api = {
     },
   },
   analytics: {
-    anomalies: () => request<unknown>('/analitica/anomalias'),
-    indicators: () => request<unknown>('/analitica/indicadores'),
+    anomalies: (params = '') => request<unknown>(`/analitica/anomalias${params}`),
+    indicators: (params = '') => request<unknown>(`/analitica/indicadores${params}`),
     series: (params = '') => request<unknown>(`/analitica/series${params}`),
-    accessPatterns: () => request<AccessPatternCluster[]>('/analitica/patrones-acceso'),
+    accessPatterns: (params = '') => request<AccessPatternCluster[]>(`/analitica/patrones-acceso${params}`),
     metrics: () => request<ModelResultItem[]>('/analitica/modelo/metricas'),
     correlation: (cleanroomId?: number) =>
       request<CorrelationResponse>(`/analitica/correlacion${cleanroomId ? `?cleanroom_id=${cleanroomId}` : ''}`),
@@ -514,6 +527,6 @@ export const api = {
       request<{ status: string; processed_readings: number; processed_accesses: number; executed_at: string }>('/analitica/etl/ejecutar', { method: 'POST' }),
     trainModel: () => request<ModelResultItem>('/analitica/modelo/entrenar', { method: 'POST' }),
   },
-  adminSummary: () => request<unknown>('/dashboard/admin/summary'),
-  supervisorSummary: () => request<SupervisorSummary>('/dashboard/supervisor/summary'),
+  adminSummary: (params = '') => request<AdminSummary>(`/dashboard/admin/summary${params}`),
+  supervisorSummary: (params = '') => request<SupervisorSummary>(`/dashboard/supervisor/summary${params}`),
 }

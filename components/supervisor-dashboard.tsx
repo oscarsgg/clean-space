@@ -93,12 +93,21 @@ function decisionStyle(decisionType: string) {
 }
 
 export function SupervisorDashboard() {
+  const [periodDays, setPeriodDays] = useState(7)
+  const [selectedRoom, setSelectedRoom] = useState('')
+  const summaryQuery = useMemo(() => {
+    const end = new Date()
+    const start = new Date(end.getTime() - periodDays * 86400000)
+    const params = new URLSearchParams({ start_at: start.toISOString(), end_at: end.toISOString() })
+    if (selectedRoom) params.set('cleanroom_id', selectedRoom)
+    return `?${params.toString()}`
+  }, [periodDays, selectedRoom])
   const {
     data: summary,
     error: summaryError,
     isLoading: summaryLoading,
     mutate: mutateSummary,
-  } = useSWR<SupervisorSummary>('supervisor-summary', api.supervisorSummary)
+  } = useSWR<SupervisorSummary>(['supervisor-summary', summaryQuery], () => api.supervisorSummary(summaryQuery))
 
   const [decisionFilter, setDecisionFilter] = useState<string>('ALL')
   const {
@@ -235,6 +244,8 @@ export function SupervisorDashboard() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
+          <select aria-label="Periodo de actividad" value={periodDays} onChange={event => setPeriodDays(Number(event.target.value))} className="rounded-xl border border-[#dce8eb] bg-white px-3 py-2 text-xs dark:border-[#233a47] dark:bg-[#101e26]"><option value={7}>7 días</option><option value={30}>30 días</option><option value={90}>90 días</option></select>
+          <select aria-label="Cuarto asignado" value={selectedRoom} onChange={event => setSelectedRoom(event.target.value)} className="rounded-xl border border-[#dce8eb] bg-white px-3 py-2 text-xs dark:border-[#233a47] dark:bg-[#101e26]"><option value="">Todos mis cuartos</option>{rooms.map(room => <option key={room.id} value={room.id}>{room.code}</option>)}</select>
           <span
             className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${
               realtimeStatus === 'connected'
@@ -311,6 +322,11 @@ export function SupervisorDashboard() {
           tone={(summary?.active_alerts ?? 0) > 0 ? 'amber' : 'emerald'}
           icon={<AlertTriangle className="size-4" />}
         />
+      </section>
+
+      <section className="grid gap-5 xl:grid-cols-2">
+        <article className="rounded-2xl border border-[#e5edf0] bg-white p-5 dark:border-[#1e3340] dark:bg-[#101e26]"><h2 className="font-semibold">Accesos por día</h2><p className="text-xs text-[#718995]">Permitidos y denegados · periodo seleccionado</p>{!summaryLoading && !summary?.access_series?.length ? <p className="py-12 text-center text-sm text-[#718995]">Sin eventos en el periodo.</p> : <div className="mt-5 flex h-44 items-end gap-2 overflow-x-auto">{(summary?.access_series ?? []).map(day => { const max = Math.max(1, ...summary!.access_series!.map(x => x.allowed + x.denied)); return <div key={day.date} className="flex h-full min-w-7 flex-1 flex-col justify-end gap-1 text-center"><div title={`Permitidos ${day.allowed}`} className="mx-auto w-3/4 rounded-t bg-teal-600" style={{height:`${Math.max(3,day.allowed/max*80)}%`}}/><div title={`Denegados ${day.denied}`} className="mx-auto w-3/4 bg-rose-400" style={{height:`${day.denied?Math.max(3,day.denied/max*80):0}%`}}/><span className="text-[9px] text-[#718995]">{day.date.slice(5)}</span></div>})}</div>}</article>
+        <article className="rounded-2xl border border-[#e5edf0] bg-white p-5 dark:border-[#1e3340] dark:bg-[#101e26]"><h2 className="font-semibold">Lecturas ambientales recientes</h2><p className="text-xs text-[#718995]">Promedio diario por métrica · hasta 5,000 lecturas</p>{!summaryLoading && !summary?.environment_series?.length ? <p className="py-12 text-center text-sm text-[#718995]">Sin lecturas en el periodo.</p> : <div className="mt-4 max-h-48 space-y-2 overflow-auto">{(summary?.environment_series ?? []).slice(-20).map((reading,index) => <div key={`${reading.date}-${reading.metric}-${index}`} className="flex items-center gap-3 text-xs"><span className="w-24 shrink-0 text-[#718995]">{reading.date.slice(5)} · {reading.metric}</span><div className="h-2 flex-1 rounded-full bg-slate-100 dark:bg-slate-800"><div className="h-full rounded-full bg-sky-600" style={{width:`${Math.min(100,Math.max(4,Number(reading.average)))}%`}}/></div><b>{reading.average} {reading.unit}</b></div>)}</div>}</article>
       </section>
 
       {commandNotice && (

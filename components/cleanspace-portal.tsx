@@ -10,6 +10,7 @@ import { AlertsManagement } from '@/components/alerts-management'
 import { DeviceManagement } from '@/components/device-management'
 import { PeopleManagement } from '@/components/people-management'
 import { SupervisorDashboard } from '@/components/supervisor-dashboard'
+import { AdminDashboard } from '@/components/admin-dashboard'
 import { AccessZoneMonitor } from '@/components/access-zone-monitor'
 import { EcbdAnalytics } from '@/components/ecbd-analytics'
 import { AgentDrawer } from '@/components/agent-drawer'
@@ -42,6 +43,7 @@ const adminItems = [
   { href: '/admin/personas', label: 'Personas autorizadas', icon: Users },
   { href: '/admin/permisos', label: 'Permisos', icon: ShieldCheck },
   { href: '/admin/monitoreo/parametros', label: 'Parámetros', icon: SlidersHorizontal },
+  { href: '/admin/analisis', label: 'Análisis', icon: Gauge },
 ]
 const supervisorItems = [
   { href: '/supervisor/dashboard', label: 'Resumen', icon: LayoutDashboard },
@@ -139,15 +141,9 @@ function Logo() {
 function Content({ path }: { path: string }) {
   const normalizedPath = path.replace('/supervisor', '').replace('/admin', '')
   if (path === '/admin/dashboard') {
-    return (
-      <LiveApiList
-        title="Resumen operativo"
-        eyebrow="Administración"
-        description="Resumen oficial entregado por el endpoint del dashboard administrativo."
-        loader={liveLoaders.adminSummary}
-      />
-    )
+    return <AdminDashboard />
   }
+  if (path === '/admin/analisis' || path === '/supervisor/analisis' || path === '/analisis') return <EcbdAnalytics />
   if (path === '/supervisor/dashboard') return <SupervisorDashboard />
   if (normalizedPath === '/dashboard') {
     return (
@@ -189,7 +185,6 @@ function Content({ path }: { path: string }) {
     )
   }
   if (path === '/avisos' || path === '/supervisor/avisos') return <AlertsManagement />
-  if (path === '/analisis' || path === '/supervisor/analisis') return <EcbdAnalytics />
   return <EcbdAnalytics />
 }
 
@@ -197,8 +192,6 @@ function Content({ path }: { path: string }) {
 export default function CleanSpacePortal({ role = 'admin' }: { role?: 'admin' | 'supervisor' }) {
   const pathname = usePathname()
   const router = useRouter()
-  const [userRoles, setUserRoles] = useState<string[]>([])
-  const hasAdminRole = userRoles.includes('ADMINISTRADOR')
   const items = role === 'admin' ? adminItems : supervisorItems
   const [user, setUser] = useState<UserSummary>(() => buildUserSummary(null, role))
   const [isDark, setIsDark] = useState(false)
@@ -233,14 +226,6 @@ export default function CleanSpacePortal({ role = 'admin' }: { role?: 'admin' | 
     let active = true
 
     const applyResolvedUser = (rawUser: Record<string, unknown> | null | undefined) => {
-      const rolesRaw = rawUser?.roles
-      const resolvedRoles = Array.isArray(rolesRaw) ? rolesRaw.map((item) => String(item).toUpperCase()) : []
-      if (resolvedRoles.length > 0) {
-        setUserRoles(resolvedRoles)
-        if (role === 'admin' && !resolvedRoles.includes('ADMINISTRADOR') && resolvedRoles.includes('SUPERVISOR')) {
-          router.replace('/supervisor/dashboard')
-        }
-      }
       setUser(buildUserSummary(rawUser, role))
     }
 
@@ -250,9 +235,8 @@ export default function CleanSpacePortal({ role = 'admin' }: { role?: 'admin' | 
         if (!active) return
         applyResolvedUser(response as Record<string, unknown>)
       } catch {
-        const fallback = getCurrentUserFromToken()
         if (!active) return
-        applyResolvedUser(fallback)
+        applyResolvedUser(getCurrentUserFromToken())
       }
     }
 
@@ -301,29 +285,6 @@ export default function CleanSpacePortal({ role = 'admin' }: { role?: 'admin' | 
             </Link>
           ))}
         </nav>
-        {hasAdminRole && (
-          <>
-            <p className="mt-6 px-3 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">
-              {role === 'admin' ? 'Supervisión y Agente' : 'Administración'}
-            </p>
-            <nav className="mt-2 flex flex-col gap-1">
-              {(role === 'admin' ? supervisorItems : adminItems).map(({ href, label, icon: Icon }) => (
-                <Link
-                  key={href}
-                  href={href}
-                  className={`flex items-center gap-3 rounded-xl px-3 py-2 text-xs font-medium transition ${
-                    pathname === href
-                      ? 'bg-[#1c4b56] text-white'
-                      : 'text-slate-400 hover:bg-white/5 hover:text-white'
-                  }`}
-                >
-                  <Icon className="size-4" />
-                  <span className="flex-1">{label}</span>
-                </Link>
-              ))}
-            </nav>
-          </>
-        )}
         <div className="mt-auto pt-4">
           <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
             <div className="flex items-center gap-3">

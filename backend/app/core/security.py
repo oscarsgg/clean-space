@@ -18,6 +18,8 @@ def create_token(subject: str, token_type: str, expires: timedelta, roles: list[
     return jwt.encode(claims, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 def decode_token(token: str, expected_type: str):
     settings = get_settings()
+    if not isinstance(token, str) or not token:
+        return None
     try:
         payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm], issuer=settings.jwt_issuer, audience=settings.jwt_audience)
         if payload.get("type") != expected_type or not payload.get("sub"): return None

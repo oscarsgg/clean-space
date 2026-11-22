@@ -82,6 +82,14 @@ const CLUSTER_COLORS: Record<string, { fill: string; label: string; dot: string 
 
 export function EcbdAnalytics() {
   const [selectedRoomId, setSelectedRoomId] = useState<number | undefined>(undefined)
+  const [periodDays, setPeriodDays] = useState(30)
+  const analyticsQuery = useMemo(() => {
+    const end = new Date()
+    const start = new Date(end.getTime() - periodDays * 86400000)
+    const params = new URLSearchParams({ start_at: start.toISOString(), end_at: end.toISOString() })
+    if (selectedRoomId) params.set('cleanroom_id', String(selectedRoomId))
+    return `?${params.toString()}`
+  }, [periodDays, selectedRoomId])
 
   const { data: summary } = useSWR<SupervisorSummary>('supervisor-summary', api.supervisorSummary)
   const {
@@ -96,12 +104,12 @@ export function EcbdAnalytics() {
     data: patternsRaw,
     isLoading: patternsLoading,
     mutate: mutatePatterns,
-  } = useSWR<AccessPatternCluster[]>('ecbd-patterns', api.analytics.accessPatterns)
+  } = useSWR<AccessPatternCluster[]>(['ecbd-patterns', analyticsQuery], () => api.analytics.accessPatterns(analyticsQuery))
   const {
     data: anomaliesRaw,
     isLoading: anomaliesLoading,
     mutate: mutateAnomalies,
-  } = useSWR('ecbd-anomalies', api.analytics.anomalies)
+  } = useSWR(['ecbd-anomalies', analyticsQuery], () => api.analytics.anomalies(analyticsQuery))
   const {
     data: metricsRaw,
     isLoading: metricsLoading,
@@ -110,7 +118,8 @@ export function EcbdAnalytics() {
   const {
     data: indicatorsRaw,
     mutate: mutateIndicators,
-  } = useSWR('ecbd-indicators', api.analytics.indicators)
+  } = useSWR(['ecbd-indicators', analyticsQuery], () => api.analytics.indicators(analyticsQuery))
+  const { data: readingsRaw, isLoading: readingsLoading } = useSWR(['ecbd-series', analyticsQuery], () => api.analytics.series(analyticsQuery))
 
   useRealtimeEvents({
     mutateKeys: ['ecbd-correlation', 'ecbd-patterns', 'ecbd-anomalies', 'ecbd-metrics', 'ecbd-indicators'],
@@ -127,6 +136,7 @@ export function EcbdAnalytics() {
   const anomalies = useMemo(() => normalizeAnomalies(anomaliesRaw), [anomaliesRaw])
   const modelResults = useMemo(() => (Array.isArray(metricsRaw) ? metricsRaw : []), [metricsRaw])
   const indicators = (indicatorsRaw && typeof indicatorsRaw === 'object' ? indicatorsRaw : {}) as IndicatorsResponse
+  const readings = Array.isArray(readingsRaw) ? readingsRaw as { recorded_at: string; metric: string; unit: string; value: number }[] : []
 
   const runEtl = async () => {
     setActionBusy('etl')
@@ -195,8 +205,9 @@ export function EcbdAnalytics() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <select aria-label="Periodo de análisis" value={periodDays} onChange={event => setPeriodDays(Number(event.target.value))} className="rounded-xl border border-[#dce8eb] bg-white px-3 py-2 text-xs font-medium dark:border-[#233a47] dark:bg-[#101e26]"><option value={7}>7 días</option><option value={30}>30 días</option><option value={90}>90 días</option></select>
           <select
-            aria-label="Filtrar correlación por cuarto limpio"
+            aria-label="Filtrar análisis por cuarto limpio"
             value={selectedRoomId ?? ''}
             onChange={(event) => setSelectedRoomId(event.target.value ? Number(event.target.value) : undefined)}
             className="rounded-xl border border-[#dce8eb] bg-white px-3 py-2 text-xs font-medium text-[#29434e] outline-none focus:border-[#087f7b] dark:border-[#233a47] dark:bg-[#101e26] dark:text-[#e6f0f2]"
@@ -259,6 +270,11 @@ export function EcbdAnalytics() {
         <IndicatorCard label="Accesos analizados" value={String(indicators.total_accesses ?? 0)} icon={<Activity className="size-4" />} />
         <IndicatorCard label="Rechazos registrados" value={String(indicators.denied_accesses ?? 0)} icon={<AlertTriangle className="size-4" />} />
         <IndicatorCard label="Alertas activas" value={String(indicators.active_alerts ?? 0)} icon={<Sparkles className="size-4" />} />
+      </section>
+
+      <section className="rounded-2xl border border-[#e5edf0] bg-white p-5 shadow-[0_8px_24px_rgba(18,49,66,0.04)] dark:border-[#1e3340] dark:bg-[#101e26]">
+        <div><h2 className="text-base font-semibold">Serie de lecturas ambientales</h2><p className="mt-1 text-xs text-[#82969d]">Métrica y unidad se conservan por lectura; máximo de 1,000 registros para el filtro aplicado.</p></div>
+        {readingsLoading ? <div className="py-8 text-center text-sm text-[#718995]">Cargando serie…</div> : readings.length === 0 ? <div className="py-8 text-center text-sm text-[#718995]">No hay lecturas ambientales en este periodo y cuarto.</div> : <div className="mt-4 max-h-64 overflow-auto">{readings.slice(-100).map((reading, index) => <div key={`${reading.recorded_at}-${index}`} className="grid grid-cols-[7rem_1fr_auto] items-center gap-3 border-b border-[#edf2f3] py-2 text-xs dark:border-[#1e3340]"><span className="text-[#82969d]">{formatDateTime(reading.recorded_at)}</span><span className="font-medium">{reading.metric}</span><b>{reading.value} {reading.unit}</b></div>)}</div>}
       </section>
 
       {/* Gráficas SVG principales */}

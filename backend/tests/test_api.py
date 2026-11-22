@@ -105,6 +105,24 @@ def test_login_accepts_oauth2_form():
     assert response.json()["user"]["email"] == "admin@cleanspace.com"
 
 
+def test_login_sets_http_only_route_cookie_and_cookie_authenticates_me():
+    client = TestClient(app)
+    _login_admin(client)
+    response = client.post(
+        "/api/v1/auth/login",
+        data={"username": "admin@cleanspace.com", "password": "Admin_123456!"},
+    )
+    assert response.status_code == 200
+    set_cookie = response.headers.get("set-cookie", "")
+    assert "cleanspace_route_session=" in set_cookie
+    assert "httponly" in set_cookie.lower()
+    assert "refresh_token=" in set_cookie
+
+    cookie_response = client.get("/api/v1/auth/me")
+    assert cookie_response.status_code == 200
+    assert cookie_response.json()["roles"] == ["ADMINISTRADOR"]
+
+
 def _login_admin(client: TestClient) -> dict[str, str]:
     db = SessionLocal()
     role = db.scalar(select(Role).where(Role.code == "ADMINISTRADOR"))
