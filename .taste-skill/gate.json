@@ -2,11 +2,20 @@
  "start": "2026-11-13T03:29:43.326Z",
  "round": 0,
  "idle": 0,
- "errors": 1,
+ "errors": 2,
  "status": "error",
  "history": [
   {
    "at": "2026-11-13T03:30:09.423Z",
+   "mode": "manual",
+   "status": "error",
+   "fails": 0,
+   "round": 0,
+   "reused": false,
+   "stopHookActive": false
+  },
+  {
+   "at": "2026-11-22T07:03:32.431Z",
    "mode": "manual",
    "status": "error",
    "fails": 0,
@@ -28,7 +37,7 @@
   "by": "gate.mjs --start"
  },
  "manual": true,
- "fp": "59bea4f0dcf7322c",
+ "fp": "055e3c196515cae9",
  "page": "http://127.0.0.1:3189/",
  "found": {
   "fails": [],
@@ -47,5 +56,5 @@
  "waived": [],
  "warnCount": 0,
  "note": "the copy (the page showed no <main>, <section> or <h1> to lint); consistency.mjs gave no report (exit 1: Error: Chrome exited early (4294930433)); check.mjs could not run (exit 2: check: Chrome did not start)",
- "at": "2026-11-13T03:30:09.428Z"
+ "at": "2026-11-22T07:03:32.433Z"
 }

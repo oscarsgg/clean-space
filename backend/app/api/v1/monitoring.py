@@ -90,6 +90,7 @@ def readings(
 def access_events(
     page: int = 1,
     size: int = Query(100, le=500),
+    cleanroom_id: int | None = None,
     db: Session = Depends(get_db),
     user=Depends(require("ADMINISTRADOR", "SUPERVISOR")),
 ):
@@ -102,15 +103,21 @@ def access_events(
     room_ids = accessible_room_ids(user)
     if room_ids is not None:
         query = query.where(AccessEvent.cleanroom_id.in_(room_ids)) if room_ids else query.where(False)
+    if cleanroom_id is not None:
+        ensure_room_access(user, cleanroom_id)
+        query = query.where(AccessEvent.cleanroom_id == cleanroom_id)
     return output(db.scalars(query).all())
 
 
 @router.get("/avisos")
-def alerts(db: Session = Depends(get_db), user=Depends(current_user)):
+def alerts(cleanroom_id: int | None = None, db: Session = Depends(get_db), user=Depends(current_user)):
     query = select(Alert).order_by(desc(Alert.created_at)).limit(100)
     room_ids = accessible_room_ids(user)
     if room_ids is not None:
         query = query.where(Alert.cleanroom_id.in_(room_ids)) if room_ids else query.where(False)
+    if cleanroom_id is not None:
+        ensure_room_access(user, cleanroom_id)
+        query = query.where(Alert.cleanroom_id == cleanroom_id)
     return output(db.scalars(query).all())
 
 

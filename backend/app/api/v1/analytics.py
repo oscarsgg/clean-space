@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.dependencies import output, require, utcnow
 from app.db.database import get_db
-from app.models import AccessEvent, Alert, Cleanroom, Device, ModelResult, SensorReading, User
+from app.models import AccessEvent, Alert, Cleanroom, Device, ModelResult, MonitoringParameter, SensorReading, User
 from app.services.ecbd import (
     as_utc,
     accessible_rooms,
@@ -172,6 +172,48 @@ def summary(
         return db.scalar(select(func.count(model.id)).where(*conditions)) or 0
 
     room_devices = db.scalars(select(Device).where(device_scope)).all()
+    alert_rows = db.execute(
+        select(Alert.created_at, Alert.severity).where(
+            alert_scope, Alert.created_at >= start, Alert.created_at < end
+        ).order_by(Alert.created_at.asc())
+    ).all()
+    alert_buckets: dict[str, dict[str, int]] = {}
+    for occurred_at, severity in alert_rows:
+        date_key = as_utc(occurred_at).strftime("%Y-%m-%d")
+        bucket = alert_buckets.setdefault(date_key, {})
+        key = (severity or "UNKNOWN").upper()
+        bucket[key] = bucket.get(key, 0) + 1
+
+    parameters = db.scalars(
+        select(MonitoringParameter).where(
+            MonitoringParameter.cleanroom_id.in_(room_ids) if room_ids else False,
+            MonitoringParameter.enabled.is_(True),
+        )
+    ).all()
+    limits = {(parameter.cleanroom_id, parameter.metric): parameter for parameter in parameters}
+    reading_rows = db.scalars(
+        select(SensorReading).where(
+            reading_scope,
+            SensorReading.recorded_at >= start,
+            SensorReading.recorded_at < end,
+        ).order_by(SensorReading.recorded_at.asc(), SensorReading.id.asc()).limit(20000)
+    ).all()
+    room_by_id = {room.id: room for room in db.scalars(select(Cleanroom).where(Cleanroom.id.in_(room_ids))).all()} if room_ids else {}
+    environment_buckets: dict[tuple[str, int, str, str], dict[str, int | float | None]] = {}
+    for reading in reading_rows:
+        date_key = as_utc(reading.recorded_at).strftime("%Y-%m-%d")
+        key = (date_key, reading.cleanroom_id, reading.metric, reading.unit)
+        bucket = environment_buckets.setdefault(key, {"total": 0.0, "count": 0, "in_range": 0, "comparable": 0, "min_value": None, "max_value": None})
+        bucket["total"] += float(reading.value)
+        bucket["count"] += 1
+        parameter = limits.get((reading.cleanroom_id, reading.metric))
+        if parameter and parameter.unit == reading.unit:
+            bucket["min_value"] = parameter.min_value
+            bucket["max_value"] = parameter.max_value
+            bucket["comparable"] += 1
+            if parameter.min_value <= reading.value <= parameter.max_value:
+                bucket["in_range"] += 1
+
     return {
         "cleanrooms": len(detail["rooms"]) if cleanroom_id is not None else db.scalar(select(func.count(Cleanroom.id))) or 0,
         "active_people": db.scalar(select(func.count(User.id)).where(User.status == "ACTIVE")) or 0,
@@ -185,6 +227,26 @@ def summary(
         "current_occupancy": detail["current_occupancy"],
         "rooms": detail["rooms"],
         "access_series": detail["access_series"],
+        "alert_series": [
+            {"date": date_key, "by_severity": counts}
+            for date_key, counts in sorted(alert_buckets.items())
+        ],
+        "environment_series": [
+            {
+                "date": date_key,
+                "cleanroom_id": room_id,
+                "room_code": room_by_id[room_id].code if room_id in room_by_id else "",
+                "metric": metric,
+                "unit": unit,
+                "average": round(values["total"] / values["count"], 2),
+                "count": values["count"],
+                "in_range_count": values["in_range"],
+                "in_range_percent": round(100 * values["in_range"] / values["comparable"], 1) if values["comparable"] else None,
+                "limits_sample_count": values["comparable"],
+            }
+            | {"min_value": values["min_value"], "max_value": values["max_value"]}
+            for (date_key, room_id, metric, unit), values in sorted(environment_buckets.items())
+        ],
         "device_status": [
             {"status": status, "count": sum(device.status == status for device in room_devices)}
             for status in sorted({device.status for device in room_devices})

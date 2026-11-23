@@ -14,6 +14,7 @@ import {
   ShieldX,
 } from 'lucide-react'
 import { api, type SupervisorRoomSummary } from '@/lib/api'
+import { userFacingClientError } from '@/lib/user-facing-errors.mjs'
 
 export type SimulatedZoneFeedback = {
   cleanroomId: number
@@ -137,7 +138,7 @@ function AccessSimulatorCard({
     } catch (cause) {
       setFeedback({
         tone: 'err',
-        text: cause instanceof Error ? cause.message : 'No se pudo ejecutar la simulación de acceso.',
+        text: userFacingClientError(cause),
       })
     } finally {
       setBusyAction(null)
@@ -175,7 +176,7 @@ function AccessSimulatorCard({
     } catch (cause) {
       setFeedback({
         tone: 'err',
-        text: cause instanceof Error ? cause.message : 'No se pudo ejecutar la secuencia de bloqueo.',
+        text: userFacingClientError(cause),
       })
     } finally {
       setBusyAction(null)
@@ -215,7 +216,7 @@ function AccessSimulatorCard({
     } catch (cause) {
       setFeedback({
         tone: 'err',
-        text: cause instanceof Error ? cause.message : 'No se pudo enviar la lectura anómala.',
+        text: userFacingClientError(cause),
       })
     } finally {
       setBusyAction(null)

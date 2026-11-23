@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { LiveApiList, PendingIntegration, liveLoaders } from '@/components/live-api-list'
 import { RoomManagement } from '@/components/room-management'
+import { AdminParameterManagement } from '@/components/admin-parameter-management'
 import { AccessPermissionManagement } from '@/components/access-management'
 import { AlertsManagement } from '@/components/alerts-management'
 import { DeviceManagement } from '@/components/device-management'
@@ -16,6 +17,7 @@ import { EcbdAnalytics } from '@/components/ecbd-analytics'
 import { AgentDrawer } from '@/components/agent-drawer'
 import { api, clearSession, getCurrentUserFromToken } from '@/lib/api'
 import { LiveDeviceForm, LivePersonForm } from '@/components/live-admin-forms'
+import { ADMIN_NAV_GROUPS, routeMatchesNavigation } from '@/lib/admin-navigation.mjs'
 import {
   Activity,
   Bell,
@@ -36,15 +38,20 @@ import {
   X,
 } from 'lucide-react'
 
-const adminItems = [
-  { href: '/admin/dashboard', label: 'Resumen', icon: LayoutDashboard },
-  { href: '/admin/cuartos', label: 'Cuartos limpios', icon: Building2 },
-  { href: '/admin/dispositivos', label: 'Dispositivos', icon: TabletSmartphone },
-  { href: '/admin/personas', label: 'Personas autorizadas', icon: Users },
-  { href: '/admin/permisos', label: 'Permisos', icon: ShieldCheck },
-  { href: '/admin/monitoreo/parametros', label: 'Parámetros', icon: SlidersHorizontal },
-  { href: '/admin/analisis', label: 'Análisis', icon: Gauge },
-]
+const adminIconMap: Record<string, typeof LayoutDashboard> = {
+  dashboard: LayoutDashboard,
+  rooms: Building2,
+  devices: TabletSmartphone,
+  people: Users,
+  permissions: ShieldCheck,
+  parameters: SlidersHorizontal,
+  analytics: Gauge,
+}
+const adminSections = ADMIN_NAV_GROUPS.map((group) => ({
+  label: group.label,
+  items: group.items.map((item) => ({ ...item, icon: adminIconMap[item.icon] })),
+}))
+const adminItems = adminSections.flatMap((section) => section.items)
 const supervisorItems = [
   { href: '/supervisor/dashboard', label: 'Resumen', icon: LayoutDashboard },
   { href: '/supervisor/accesos', label: 'Accesos', icon: DoorOpen },
@@ -53,6 +60,35 @@ const supervisorItems = [
   { href: '/supervisor/avisos', label: 'Avisos', icon: Bell },
   { href: '/supervisor/analisis', label: 'Análisis', icon: Gauge },
 ]
+
+type PortalNavItem = { href: string; label: string; icon: typeof LayoutDashboard }
+
+function PortalNavigation({ role, items, pathname, onNavigate }: {
+  role: 'admin' | 'supervisor'
+  items: PortalNavItem[]
+  pathname: string
+  onNavigate?: () => void
+}) {
+  const renderItem = ({ href, label, icon: Icon }: PortalNavItem) => {
+    const active = role === 'admin' ? routeMatchesNavigation(pathname, href) : pathname === href || pathname.startsWith(`${href}/`)
+    return <Link key={href} href={href} onClick={onNavigate} aria-current={active ? 'page' : undefined}
+      className={`group relative flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm transition duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring ${
+        active ? 'bg-[#1c4b56] font-semibold text-white shadow-[inset_3px_0_0_#5eead4]' : 'font-medium text-slate-400 hover:translate-x-0.5 hover:bg-white/[0.06] hover:text-white'
+      }`}>
+      <Icon aria-hidden="true" className={`size-[18px] shrink-0 ${active ? 'text-[#5eead4]' : 'text-slate-500 group-hover:text-slate-300'}`} />
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+    </Link>
+  }
+
+  if (role === 'admin') return <nav aria-label="Navegación de administración" className="mt-7 flex flex-col gap-5">
+    {adminSections.map((section) => <div key={section.label}>
+      <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-[0.17em] text-slate-500">{section.label}</p>
+      <div className="flex flex-col gap-1">{section.items.map(renderItem)}</div>
+    </div>)}
+  </nav>
+
+  return <nav aria-label="Navegación de supervisión" className="mt-6 flex flex-col gap-1">{items.map(renderItem)}</nav>
+}
 
 const THEME_STORAGE_KEY = 'cleanspace_theme'
 
@@ -143,7 +179,8 @@ function Content({ path }: { path: string }) {
   if (path === '/admin/dashboard') {
     return <AdminDashboard />
   }
-  if (path === '/admin/analisis' || path === '/supervisor/analisis' || path === '/analisis') return <EcbdAnalytics />
+  if (path === '/admin/analisis') return <EcbdAnalytics variant="admin" />
+  if (path === '/supervisor/analisis' || path === '/analisis') return <EcbdAnalytics variant="supervisor" />
   if (path === '/supervisor/dashboard') return <SupervisorDashboard />
   if (normalizedPath === '/dashboard') {
     return (
@@ -162,7 +199,8 @@ function Content({ path }: { path: string }) {
   }
   if (path === '/admin/permisos') return <AccessPermissionManagement />
   if (path === '/admin/personas') return <PeopleManagement />
-  if (path === '/monitoreo/parametros' || path === '/admin/monitoreo/parametros') return <RoomManagement />
+  if (path === '/admin/monitoreo/parametros') return <AdminParameterManagement />
+  if (path === '/monitoreo/parametros') return <RoomManagement />
   if (path === '/accesos' || path === '/supervisor/accesos') return <AccessZoneMonitor />
   if (path === '/monitoreo' || path === '/supervisor/monitoreo') {
     return (
@@ -261,32 +299,17 @@ export default function CleanSpacePortal({ role = 'admin' }: { role?: 'admin' | 
   }
 
   return (
-    <div className="min-h-screen bg-[#f6f9f9] text-[#163542] transition-colors dark:bg-[#0b141a] dark:text-[#e6f0f2]">
-      <aside className="fixed inset-y-0 left-0 z-20 hidden w-[252px] flex-col overflow-y-auto bg-[#102c3a] px-4 py-5 dark:bg-[#09151c] lg:flex">
+    <div className={`min-h-screen transition-colors ${role === 'admin' ? 'admin-console bg-background text-foreground' : 'bg-[#f6f9f9] text-[#163542] dark:bg-[#0b141a] dark:text-[#e6f0f2]'}`}>
+      <aside className={`fixed inset-y-0 left-0 z-20 hidden flex-col overflow-y-auto px-4 py-5 dark:bg-[#09151c] lg:flex ${role === 'admin' ? 'w-[280px] border-r border-white/[0.06] bg-[#102c3a]' : 'w-[252px] bg-[#102c3a]'}`}>
         <div className="px-3">
           <Logo />
         </div>
         <p className="mt-8 px-3 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">
           {role === 'admin' ? 'Administración' : 'Supervisión'}
         </p>
-        <nav className="mt-3 flex flex-col gap-1">
-          {items.map(({ href, label, icon: Icon }) => (
-            <Link
-              key={href}
-              href={href}
-              className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${
-                pathname === href
-                  ? 'bg-[#1c4b56] text-white'
-                  : 'text-slate-400 hover:bg-white/5 hover:text-white'
-              }`}
-            >
-              <Icon className="size-[18px]" />
-              <span className="flex-1">{label}</span>
-            </Link>
-          ))}
-        </nav>
+        <PortalNavigation role={role} items={items} pathname={pathname} />
         <div className="mt-auto pt-4">
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+          <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3.5">
             <div className="flex items-center gap-3">
               <div className="flex size-9 items-center justify-center rounded-full bg-[#d8efed] text-xs font-bold text-[#087f7b]">
                 {user.initials}
@@ -315,7 +338,7 @@ export default function CleanSpacePortal({ role = 'admin' }: { role?: 'admin' | 
             onClick={() => setMobileMenuOpen(false)}
             className="fixed inset-0 bg-[#102c3a]/50"
           />
-          <aside className="relative z-10 flex w-64 flex-col bg-[#102c3a] px-4 py-5 dark:bg-[#09151c]">
+          <aside className={`relative z-10 flex flex-col bg-[#102c3a] px-4 py-5 dark:bg-[#09151c] ${role === 'admin' ? 'w-[min(20rem,88vw)]' : 'w-64'}`}>
             <div className="flex items-center justify-between px-2">
               <Logo />
               <button
@@ -327,22 +350,7 @@ export default function CleanSpacePortal({ role = 'admin' }: { role?: 'admin' | 
                 <X className="size-4" />
               </button>
             </div>
-            <nav className="mt-6 flex flex-col gap-1">
-              {items.map(({ href, label, icon: Icon }) => (
-                <Link
-                  key={href}
-                  href={href}
-                  className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${
-                    pathname === href
-                      ? 'bg-[#1c4b56] text-white'
-                      : 'text-slate-400 hover:bg-white/5 hover:text-white'
-                  }`}
-                >
-                  <Icon className="size-[18px]" />
-                  <span>{label}</span>
-                </Link>
-              ))}
-            </nav>
+            <PortalNavigation role={role} items={items} pathname={pathname} onNavigate={() => setMobileMenuOpen(false)} />
             <button
               type="button"
               onClick={handleLogout}
@@ -354,8 +362,8 @@ export default function CleanSpacePortal({ role = 'admin' }: { role?: 'admin' | 
         </div>
       )}
 
-      <div className="lg:pl-[252px]">
-        <header className="sticky top-0 z-10 flex h-[72px] items-center justify-between border-b border-[#e5edf0] bg-white/95 px-5 shadow-[0_4px_18px_rgba(18,49,66,0.04)] backdrop-blur sm:px-8 dark:border-[#1e3340] dark:bg-[#101e26]/95">
+      <div className={role === 'admin' ? 'lg:pl-[280px]' : 'lg:pl-[252px]'}>
+        <header className={`sticky top-0 z-10 flex h-[72px] items-center justify-between border-b bg-white/95 px-5 backdrop-blur sm:px-8 dark:bg-[#101e26]/95 ${role === 'admin' ? 'border-border shadow-[0_6px_24px_rgba(16,44,58,0.035)]' : 'border-[#e5edf0] shadow-[0_4px_18px_rgba(18,49,66,0.04)] dark:border-[#1e3340]'}`}>
           <div className="flex items-center gap-3">
             <button
               type="button"
@@ -365,21 +373,10 @@ export default function CleanSpacePortal({ role = 'admin' }: { role?: 'admin' | 
             >
               <Menu className="size-4" />
             </button>
-            <div>
-              <p className="text-xs text-[#78909a] dark:text-[#94adb8]">
-                CleanSpace / {role === 'admin' ? 'Administrador' : 'Supervisor'}
-              </p>
-              <h2 className="text-sm font-semibold text-[#29434e] dark:text-[#e6f0f2]">
-                {items.find((item) => item.href === pathname)?.label ?? 'Resumen'}
-              </h2>
-            </div>
+            <div><p className="text-[11px] font-medium text-[#78909a] dark:text-[#94adb8]">CleanSpace <span aria-hidden="true">/</span> {role === 'admin' ? 'Administración' : 'Supervisión'}</p><h2 className="text-sm font-semibold text-[#29434e] dark:text-[#e6f0f2]">{items.find((item) => routeMatchesNavigation(pathname, item.href))?.label ?? 'Resumen'}</h2></div>
           </div>
 
           <div className="flex items-center gap-2.5 sm:gap-3">
-            <span className="hidden items-center gap-2 text-xs text-emerald-700 sm:flex dark:text-emerald-300">
-              <span className="size-2 rounded-full bg-emerald-500" /> Sistema conectado
-            </span>
-
             <button
               type="button"
               onClick={toggleTheme}
@@ -400,13 +397,13 @@ export default function CleanSpacePortal({ role = 'admin' }: { role?: 'admin' | 
               <span>Agente IA</span>
             </button>
 
-            <Link
-              href={role === 'admin' ? '/avisos' : '/supervisor/avisos'}
+            {role === 'supervisor' && <Link
+              href="/supervisor/avisos"
               aria-label="Ver avisos"
               className="rounded-xl p-1.5 text-[#607b85] transition hover:bg-[#f4f9f8] dark:text-[#94adb8] dark:hover:bg-[#182b36]"
             >
               <Bell className="size-5" />
-            </Link>
+            </Link>}
 
             <div className="flex size-8 items-center justify-center rounded-full bg-[#d8efed] text-[10px] font-bold text-[#087f7b] dark:bg-[#13313b] dark:text-[#5eead4]">
               {user.initials}
@@ -414,7 +411,7 @@ export default function CleanSpacePortal({ role = 'admin' }: { role?: 'admin' | 
           </div>
         </header>
 
-        <main className="mx-auto max-w-[1440px] p-5 sm:p-8">
+        <main className={`mx-auto p-5 sm:p-8 ${role === 'admin' ? 'max-w-[1520px] lg:p-9' : 'max-w-[1440px]'}`}>
           <Content path={pathname} />
         </main>
       </div>

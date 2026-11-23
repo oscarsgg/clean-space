@@ -22,6 +22,8 @@ import {
   type SupervisorSummary,
 } from '@/lib/api'
 import { useRealtimeEvents } from '@/hooks/use-realtime-events'
+import { userFacingClientError } from '@/lib/user-facing-errors.mjs'
+import { AdminPageHeader } from '@/components/admin-ui'
 
 type AnomalyItem = {
   id: number
@@ -80,7 +82,7 @@ const CLUSTER_COLORS: Record<string, { fill: string; label: string; dot: string 
   c3: { fill: '#6366f1', label: 'C3 · Pico de Acceso', dot: 'bg-indigo-500' },
 }
 
-export function EcbdAnalytics() {
+export function EcbdAnalytics({ variant = 'supervisor' }: { variant?: 'admin' | 'supervisor' }) {
   const [selectedRoomId, setSelectedRoomId] = useState<number | undefined>(undefined)
   const [periodDays, setPeriodDays] = useState(30)
   const analyticsQuery = useMemo(() => {
@@ -153,7 +155,7 @@ export function EcbdAnalytics() {
     } catch (cause) {
       setActionMessage({
         tone: 'err',
-        text: cause instanceof Error ? cause.message : 'No se pudo ejecutar el pipeline ETL.',
+        text: userFacingClientError(cause),
       })
     } finally {
       setActionBusy(null)
@@ -174,7 +176,7 @@ export function EcbdAnalytics() {
     } catch (cause) {
       setActionMessage({
         tone: 'err',
-        text: cause instanceof Error ? cause.message : 'No se pudo entrenar el modelo.',
+        text: userFacingClientError(cause),
       })
     } finally {
       setActionBusy(null)
@@ -190,14 +192,15 @@ export function EcbdAnalytics() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className={`flex flex-col gap-6 ${variant === 'admin' ? 'admin-analytics' : ''}`} data-analytics-variant={variant}>
+      {variant === 'admin' && <AdminPageHeader eyebrow="Administración · datos" title="Análisis operativo" description="Indicadores, tendencias y modelos construidos con los registros disponibles en CleanSpace." />}
       <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#087f7b] dark:text-[#2dd4bf]">
-            Módulo ECBD · analítica en vivo
+            {variant === 'admin' ? 'Analítica · exploración y modelos' : 'Módulo ECBD · analítica en vivo'}
           </p>
           <h1 className="mt-1 text-3xl font-semibold tracking-tight text-[#102d3b] dark:text-[#e6f0f2]">
-            Extracción de conocimiento y modelos predictivos
+            {variant === 'admin' ? 'Comportamiento y tendencias' : 'Extracción de conocimiento y modelos predictivos'}
           </h1>
           <p className="mt-1.5 max-w-2xl text-sm text-[#718995] dark:text-[#94adb8]">
             Correlación ocupación vs partículas PM2.5, agrupamiento horario KMeans y detección de anomalías IsolationForest.

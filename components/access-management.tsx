@@ -5,6 +5,8 @@ import Link from 'next/link'
 import useSWR from 'swr'
 import { LoaderCircle, RefreshCw, ShieldCheck } from 'lucide-react'
 import { api, type ApiPerson, type ApiRoom } from '@/lib/api'
+import { userFacingClientError } from '@/lib/user-facing-errors.mjs'
+import { AdminFilterBar, AdminField, AdminStatusBadge, adminInputClass } from '@/components/admin-ui'
 
 type Permission = {
   id: number
@@ -54,11 +56,23 @@ export function AccessPermissionManagement({ personId }: { personId?: number }) 
   const [saving, setSaving] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
+  const [search, setSearch] = useState('')
+  const [filterRoom, setFilterRoom] = useState('')
+  const [filterStatus, setFilterStatus] = useState('ALL')
 
   const people = recordsFrom(peopleData) as unknown as ApiPerson[]
   const rooms = Array.isArray(roomsData) ? roomsData : []
   const permissions = recordsFrom(permissionData) as unknown as Permission[]
-  const visiblePermissions = personId ? permissions.filter((permission) => permission.user_id === personId) : permissions
+  const statusCode = (permission: Permission) => !permission.enabled ? 'INACTIVE' : permission.valid_until && new Date(permission.valid_until) <= new Date() ? 'EXPIRED' : permission.valid_from && new Date(permission.valid_from) > new Date() ? 'SCHEDULED' : 'ACTIVE'
+  const visiblePermissions = permissions.filter((permission) => {
+    if (personId && permission.user_id !== personId) return false
+    if (filterRoom && String(permission.cleanroom_id) !== filterRoom) return false
+    if (filterStatus !== 'ALL' && statusCode(permission) !== filterStatus) return false
+    const person = people.find((item) => item.id === permission.user_id)
+    const room = rooms.find((item) => item.id === permission.cleanroom_id)
+    const haystack = `${person?.full_name ?? person?.name ?? person?.email ?? ''} ${room?.name ?? ''} ${room?.code ?? ''}`.toLocaleLowerCase()
+    return !search || haystack.includes(search.toLocaleLowerCase())
+  })
   const selectedPerson = people.find((person) => person.id === personId)
   const loading = peopleLoading || roomsLoading || permissionsLoading
   const loadError = peopleError || roomsError || permissionError
@@ -98,7 +112,7 @@ export function AccessPermissionManagement({ personId }: { personId?: number }) 
       formElement.reset()
       setSuccessMessage('Permiso creado y sincronizado con FastAPI.')
     } catch (cause) {
-      setErrorMessage(cause instanceof Error ? cause.message : 'No se pudo guardar el permiso.')
+      setErrorMessage(userFacingClientError(cause))
     } finally {
       setSaving(false)
     }
@@ -113,7 +127,7 @@ export function AccessPermissionManagement({ personId }: { personId?: number }) 
       await mutatePermissions()
       setSuccessMessage('Permiso actualizado.')
     } catch (cause) {
-      setErrorMessage(cause instanceof Error ? cause.message : 'No se pudo actualizar el permiso.')
+      setErrorMessage(userFacingClientError(cause))
     } finally {
       setSaving(false)
     }
@@ -136,7 +150,7 @@ export function AccessPermissionManagement({ personId }: { personId?: number }) 
 
     <section className="rounded-2xl border border-[#e5edf0] bg-white p-5 shadow-[0_8px_24px_rgba(18,49,66,0.04)] sm:p-6">
       <div className="mb-5 flex items-center gap-3"><div className="flex size-10 items-center justify-center rounded-xl bg-[#eff8f7] text-[#087f7b]"><ShieldCheck className="size-5" /></div><div><h2 className="font-semibold text-[#163542]">Nuevo permiso</h2><p className="text-xs text-[#82969d]">Los límites de vigencia son opcionales.</p></div></div>
-      {loadError && <div role="alert" className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">No se pudieron cargar las opciones: {loadError instanceof Error ? loadError.message : 'Error de API.'}</div>}
+      {loadError && <div role="alert" className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">No se pudieron cargar las opciones: {userFacingClientError(loadError)}</div>}
       {personId && !selectedPerson && !peopleLoading && <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">No se encontró esta persona en la respuesta de FastAPI.</div>}
       <form onSubmit={createPermission} className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {!personId && <label className="flex flex-col gap-2 text-sm font-medium text-[#29434e]">Persona<select className={fieldClass} required name="user_id" defaultValue="" disabled={peopleLoading || Boolean(peopleError)}><option value="" disabled>Seleccionar persona</option>{people.map((person) => <option key={person.id} value={person.id}>{person.full_name || person.email || `Persona #${person.id}`}{person.status === 'INACTIVE' ? ' · inactiva' : ''}</option>)}</select></label>}
@@ -149,6 +163,11 @@ export function AccessPermissionManagement({ personId }: { personId?: number }) 
 
     <section className="overflow-hidden rounded-2xl border border-[#e5edf0] bg-white shadow-[0_8px_24px_rgba(18,49,66,0.04)]">
       <div className="flex items-center justify-between border-b border-[#edf2f3] px-5 py-4"><div><h2 className="font-semibold text-[#163542]">Permisos registrados</h2><p className="mt-1 text-xs text-[#82969d]">{visiblePermissions.length} resultados</p></div><button type="button" aria-label="Actualizar permisos" onClick={() => void Promise.all([mutatePermissions(), mutatePeople(), mutateRooms()])} className="rounded-lg p-2 text-[#58727c] hover:bg-[#f3f8f8]"><RefreshCw className="size-4" /></button></div>
+      <AdminFilterBar className="m-4">
+        <AdminField label="Buscar persona o cuarto" className="min-w-[14rem] flex-1"><input className={adminInputClass} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Nombre, correo, código…" /></AdminField>
+        {!personId && <AdminField label="Cuarto" className="sm:min-w-52"><select className={adminInputClass} value={filterRoom} onChange={(event) => setFilterRoom(event.target.value)}><option value="">Todos los cuartos</option>{rooms.map((room) => <option key={room.id} value={room.id}>{room.code} · {room.name}</option>)}</select></AdminField>}
+        <AdminField label="Vigencia y estado" className="sm:min-w-48"><select className={adminInputClass} value={filterStatus} onChange={(event) => setFilterStatus(event.target.value)}><option value="ALL">Todos</option><option value="ACTIVE">Vigente y activo</option><option value="SCHEDULED">Programado</option><option value="EXPIRED">Vencido</option><option value="INACTIVE">Deshabilitado</option></select></AdminField>
+      </AdminFilterBar>
       {loading ? <div className="p-8 text-center text-sm text-[#82969d]">Consultando permisos…</div> : loadError ? <div className="p-8 text-center text-sm text-red-700">No se pudo consultar la lista.</div> : visiblePermissions.length === 0 ? <div className="p-8 text-center"><p className="font-medium text-[#29434e]">No hay permisos registrados</p><p className="mt-1 text-sm text-[#82969d]">Crea el primero con el formulario anterior.</p></div> : <ul className="divide-y divide-[#edf2f3]">{visiblePermissions.map((permission) => <PermissionRow key={permission.id} permission={permission} personName={personName(permission.user_id)} roomName={roomName(permission.cleanroom_id)} saving={saving} onSave={(patch) => void updatePermission(permission.id, patch)} />)}</ul>}
     </section>
     <Link href="/admin/personas" className="w-fit text-sm font-semibold text-[#087f7b] hover:underline">Volver a personas</Link>
@@ -177,6 +196,6 @@ function PermissionRow({ permission, personName, roomName, saving, onSave }: { p
     <div className="min-w-0 flex-1"><p className="font-semibold text-[#29434e]">{personName}</p><p className="mt-1 text-sm text-[#718995]">{roomName}</p><p className="mt-2 text-xs text-[#82969d]">Vigencia: {displayDate(permission.valid_from)} — {displayDate(permission.valid_until)}</p>
       {editing && <div className="mt-4 grid gap-3 sm:grid-cols-2"><label className="flex flex-col gap-2 text-xs font-medium text-[#58727c]">Válido desde<input className={fieldClass} type="datetime-local" value={validFrom} onChange={(event) => setValidFrom(event.target.value)} /></label><label className="flex flex-col gap-2 text-xs font-medium text-[#58727c]">Válido hasta<input className={fieldClass} type="datetime-local" value={validUntil} onChange={(event) => setValidUntil(event.target.value)} /></label>{validationError && <p role="alert" className="text-xs text-red-700 sm:col-span-2">{validationError}</p>}<div className="flex gap-2 sm:col-span-2"><button type="button" disabled={saving} onClick={save} className={buttonClass}>Guardar vigencia</button><button type="button" onClick={() => setEditing(false)} className="rounded-xl border border-[#dce8eb] px-4 py-2.5 text-sm font-semibold text-[#58727c]">Cancelar</button></div></div>}
     </div>
-    <div className="flex flex-wrap items-center gap-2"><span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${permission.enabled ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>{permission.enabled ? 'Activo' : 'Desactivado'}</span><button type="button" disabled={saving} onClick={() => setEditing((current) => !current)} className="rounded-lg border border-[#dce8eb] px-3 py-2 text-xs font-semibold text-[#58727c] hover:bg-[#f7fbfa]">{editing ? 'Cerrar edición' : 'Editar vigencia'}</button><button type="button" disabled={saving} onClick={() => onSave({ enabled: !permission.enabled })} className="rounded-lg border border-[#dce8eb] px-3 py-2 text-xs font-semibold text-[#58727c] hover:bg-[#f7fbfa]">{permission.enabled ? 'Desactivar' : 'Activar'}</button></div>
+    <div className="flex flex-wrap items-center gap-2"><AdminStatusBadge value={!permission.enabled ? 'INACTIVE' : permission.valid_until && new Date(permission.valid_until) <= new Date() ? 'EXPIRED' : permission.valid_from && new Date(permission.valid_from) > new Date() ? 'SCHEDULED' : 'ACTIVE'} /><button type="button" disabled={saving} onClick={() => setEditing((current) => !current)} className="rounded-lg border border-[#dce8eb] px-3 py-2 text-xs font-semibold text-[#58727c] hover:bg-[#f7fbfa]">{editing ? 'Cerrar edición' : 'Editar vigencia'}</button><button type="button" disabled={saving} onClick={() => onSave({ enabled: !permission.enabled })} className="rounded-lg border border-[#dce8eb] px-3 py-2 text-xs font-semibold text-[#58727c] hover:bg-[#f7fbfa]">{permission.enabled ? 'Desactivar' : 'Activar'}</button></div>
   </li>
 }

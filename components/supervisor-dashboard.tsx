@@ -27,6 +27,7 @@ import {
   type SupervisorRoomSummary,
   type SupervisorSummary,
 } from '@/lib/api'
+import { userFacingClientError } from '@/lib/user-facing-errors.mjs'
 import { useRealtimeEvents } from '@/hooks/use-realtime-events'
 import { AgentConsole } from '@/components/agent-drawer'
 
@@ -168,7 +169,7 @@ export function SupervisorDashboard() {
     } catch (cause) {
       setCommandNotice({
         tone: 'err',
-        text: cause instanceof Error ? cause.message : 'No se pudo enviar el comando.',
+        text: userFacingClientError(cause),
       })
     } finally {
       setCommandBusyKey(null)
@@ -190,7 +191,7 @@ export function SupervisorDashboard() {
     } catch (cause) {
       setReportNotice({
         tone: 'err',
-        text: cause instanceof Error ? cause.message : 'No se pudo generar el reporte.',
+        text: userFacingClientError(cause),
       })
     } finally {
       setCreatingReport(false)
@@ -215,7 +216,7 @@ export function SupervisorDashboard() {
     } catch (cause) {
       setReportNotice({
         tone: 'err',
-        text: cause instanceof Error ? cause.message : 'No se pudo descargar el reporte.',
+        text: userFacingClientError(cause),
       })
     } finally {
       setExportingKey(null)
@@ -281,7 +282,7 @@ export function SupervisorDashboard() {
           role="alert"
           className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-500/30 dark:bg-red-950/40 dark:text-red-200"
         >
-          No se pudo consultar el resumen de supervisión: {summaryError instanceof Error ? summaryError.message : 'Error de conexión.'}
+          No se pudo consultar el resumen de supervisión: {userFacingClientError(summaryError)}
         </div>
       )}
 

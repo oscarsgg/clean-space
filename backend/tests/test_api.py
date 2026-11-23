@@ -278,6 +278,7 @@ def _setup_supervisor_fixture():
     from datetime import datetime, timedelta, timezone
     from app.core.security import create_token, hash_refresh, hash_rfid
     from app.models import (
+        Alert,
         AccessEvent,
         AccessPermission,
         Cleanroom,
@@ -290,6 +291,7 @@ def _setup_supervisor_fixture():
     db = SessionLocal()
     try:
         sup_role = _ensure_role(db, "SUPERVISOR", "Supervisor")
+        admin_role = _ensure_role(db, "ADMINISTRADOR", "Administrador")
         op_role = _ensure_role(db, "PERSONAL_AUTORIZADO", "Personal autorizado")
         suffix = uuid4().hex[:6]
 
@@ -334,6 +336,14 @@ def _setup_supervisor_fixture():
         sup.assigned_cleanrooms = [room]
         db.add(sup)
 
+        admin = User(
+            email=f"admin-{suffix}@cleanspace.local",
+            password_hash=hash_password("Admin_123456!"),
+            full_name="Admin Test",
+        )
+        admin.roles = [admin_role]
+        db.add(admin)
+
         op1 = User(
             email=f"op1-{suffix}@cleanspace.local",
             password_hash=hash_password("Personal_123!"),
@@ -359,6 +369,7 @@ def _setup_supervisor_fixture():
         db.add(AccessPermission(user_id=op2.id, cleanroom_id=room.id, enabled=True))
 
         now_dt = datetime.now(timezone.utc)
+        db.add(Alert(cleanroom_id=room.id, device_id=device.id, type="OUT_OF_RANGE", severity="HIGH", message="Muestra de prueba", status="ACTIVE", created_at=now_dt - timedelta(hours=1)))
         for idx, h in enumerate([10, 8, 5, 3, 2, 1]):
             db.add(
                 SensorReading(
@@ -370,6 +381,13 @@ def _setup_supervisor_fixture():
                     recorded_at=now_dt - timedelta(hours=h),
                 )
             )
+        db.add_all([
+            SensorReading(device_id=device.id, cleanroom_id=room.id, metric="pm25", value=250.0, unit="p/m³", recorded_at=now_dt - timedelta(minutes=20)),
+            SensorReading(device_id=device.id, cleanroom_id=room.id, metric="pm25", value=70.0, unit="ppm", recorded_at=now_dt - timedelta(minutes=30)),
+            SensorReading(device_id=device.id, cleanroom_id=room.id, metric="humidity", value=45.0, unit="%", recorded_at=now_dt - timedelta(minutes=40)),
+            SensorReading(device_id=device.id, cleanroom_id=room.id, metric="pressure", value=1.0, unit="kPa", recorded_at=now_dt - timedelta(minutes=50)),
+        ])
+        db.add(MonitoringParameter(cleanroom_id=room.id, metric="pressure", min_value=0.0, max_value=5.0, unit="kPa", enabled=False))
         for h in [10, 7, 4]:
             db.add(
                 AccessEvent(
@@ -394,6 +412,7 @@ def _setup_supervisor_fixture():
         db.commit()
 
         sup_token = create_token(str(sup.id), "access", timedelta(minutes=30), ["SUPERVISOR"])
+        admin_token = create_token(str(admin.id), "access", timedelta(minutes=30), ["ADMINISTRADOR"])
         dev_token = create_token(str(device.id), "device", timedelta(minutes=30), ["DEVICE"])
         return {
             "room_id": room.id,
@@ -402,6 +421,7 @@ def _setup_supervisor_fixture():
             "uid1": uid1,
             "uid2": uid2,
             "sup_headers": {"Authorization": f"Bearer {sup_token}"},
+            "admin_headers": {"Authorization": f"Bearer {admin_token}"},
             "dev_headers": {"Authorization": f"Bearer {dev_token}"},
         }
     finally:
@@ -646,3 +666,49 @@ def test_supervisor_summary_ecbd_and_realtime_broker():
             assert '"id": 99' in frame
 
     asyncio.run(_check_broker())
+
+
+def test_admin_summary_series_compliance_and_filter_validation():
+    fx = _setup_supervisor_fixture()
+    client = TestClient(app)
+    room_id = fx["room_id"]
+
+    response = client.get(
+        f"/api/v1/dashboard/admin/summary?cleanroom_id={room_id}",
+        headers=fx["admin_headers"],
+    )
+    assert response.status_code == 200
+    summary = response.json()
+    assert summary["period"]["start_at"] and summary["period"]["end_at"]
+    assert summary["rooms"][0]["capacity"] == 1
+    assert summary["rooms"][0]["current_occupancy"] <= summary["rooms"][0]["capacity"]
+    assert summary["alert_series"][-1]["by_severity"]["HIGH"] == 1
+    metric_samples = [point for point in summary["environment_series"] if point["metric"] == "pm25"]
+    assert {point["unit"] for point in metric_samples} == {"p/m³", "ppm"}
+    assert sum(point["count"] for point in metric_samples) == 8
+    assert sum(point["limits_sample_count"] for point in metric_samples) == 7
+    assert sum(point["in_range_count"] for point in metric_samples) == 6
+    assert round(sum(point["in_range_count"] for point in metric_samples) / sum(point["limits_sample_count"] for point in metric_samples) * 100, 1) == 85.7
+    humidity = [point for point in summary["environment_series"] if point["metric"] == "humidity"]
+    pressure = [point for point in summary["environment_series"] if point["metric"] == "pressure"]
+    assert all(point["in_range_percent"] is None and point["limits_sample_count"] == 0 for point in humidity + pressure)
+
+    empty = client.get(
+        f"/api/v1/dashboard/admin/summary?cleanroom_id={room_id}&start_at=2020-01-01T00:00:00Z&end_at=2020-01-02T00:00:00Z",
+        headers=fx["admin_headers"],
+    )
+    assert empty.status_code == 200
+    assert empty.json()["access_series"] == []
+    assert empty.json()["environment_series"] == []
+
+    too_long = client.get(
+        "/api/v1/dashboard/admin/summary?start_at=2020-01-01T00:00:00Z&end_at=2022-01-02T00:00:00Z",
+        headers=fx["admin_headers"],
+    )
+    assert too_long.status_code == 422
+
+    missing_room = client.get(
+        "/api/v1/dashboard/admin/summary?cleanroom_id=99999999",
+        headers=fx["admin_headers"],
+    )
+    assert missing_room.status_code == 404

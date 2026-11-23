@@ -1,3 +1,5 @@
+import { userFacingApiError } from '@/lib/user-facing-errors.mjs'
+
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:8000/api/v1'
 
 export type AuthSession = {
@@ -78,12 +80,14 @@ export type SupervisorSummary = {
   period?: { start_at: string | null; end_at: string | null }
 }
 
-export type AdminSummary = SupervisorSummary & {
+export type AdminSummary = Omit<SupervisorSummary, 'environment_series'> & {
   cleanrooms: number
   active_people: number
   devices: number
   readings: number
   device_status: { status: string; count: number }[]
+  alert_series: { date: string; by_severity: Record<string, number> }[]
+  environment_series?: { date: string; cleanroom_id: number; room_code: string; metric: string; unit: string; average: number; count: number; in_range_count: number; in_range_percent: number | null; limits_sample_count: number; min_value: number | null; max_value: number | null }[]
 }
 
 export type SendCommandPayload = {
@@ -237,6 +241,30 @@ export type ApiAccessEvent = {
   denial_reason: string | null
   occurred_at: string
   [key: string]: unknown
+}
+
+export type ApiSensorReading = {
+  id: number
+  device_id: number
+  cleanroom_id: number
+  metric: string
+  value: number
+  unit: string
+  recorded_at: string
+  received_at: string
+}
+
+export type ApiMonitoringAlert = {
+  id: number
+  cleanroom_id: number
+  device_id: number | null
+  reading_id: number | null
+  type: string
+  severity: string
+  message: string
+  status: string
+  created_at: string
+  acknowledged_at: string | null
 }
 
 export type ModelResultItem = {
@@ -411,12 +439,17 @@ async function requestRaw(path: string, init: RequestInit = {}, retry = true): P
     headers.set('Authorization', `Bearer ${token}`)
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers, credentials: 'include' })
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers, credentials: 'include' })
+  } catch {
+    throw new Error('No pudimos conectar con el servicio. Revisa tu conexión e inténtalo de nuevo.')
+  }
 
   if (isPublicAuthRequest) {
     if (!response.ok) {
       const detail = await response.text()
-      throw new Error(detail || `API request failed (${response.status})`)
+      throw new Error(response.status === 401 ? 'Correo o contraseña incorrectos.' : userFacingApiError(response.status, detail))
     }
     return response
   }
@@ -425,7 +458,12 @@ async function requestRaw(path: string, init: RequestInit = {}, retry = true): P
     const refreshedToken = await refreshAccessToken()
     if (refreshedToken) {
       headers.set('Authorization', `Bearer ${refreshedToken}`)
-      const retried = await fetch(`${API_BASE_URL}${path}`, { ...init, headers, credentials: 'include' })
+      let retried: Response
+      try {
+        retried = await fetch(`${API_BASE_URL}${path}`, { ...init, headers, credentials: 'include' })
+      } catch {
+        throw new Error('No pudimos conectar con el servicio. Revisa tu conexión e inténtalo de nuevo.')
+      }
       if (retried.ok) {
         return retried
       }
@@ -444,7 +482,7 @@ async function requestRaw(path: string, init: RequestInit = {}, retry = true): P
     if (response.status === 401) {
       redirectToLogin()
     }
-    throw new Error(detail || `API request failed (${response.status})`)
+    throw new Error(userFacingApiError(response.status, detail))
   }
   return response
 }
@@ -486,13 +524,13 @@ export const api = {
   permissions: () => request<unknown>('/permisos'),
   createPermission: (data: Record<string, unknown>) => request<unknown>('/permisos', { method: 'POST', body: JSON.stringify(data) }),
   updatePermission: (id: number, data: Record<string, unknown>) => request<unknown>(`/permisos/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-  accesses: () => request<ApiAccessEvent[]>('/accesos'),
+  accesses: (params = '') => request<ApiAccessEvent[]>(`/accesos${params}`),
   commands: () => request<ApiCommand[]>('/comandos'),
   sendCommand: (data: SendCommandPayload) => request<ApiCommand>('/comandos', { method: 'POST', body: JSON.stringify(data) }),
   simulateAccess: (data: SimulateAccessPayload) => request<SimulateAccessResponse>('/iot/simular-acceso', { method: 'POST', body: JSON.stringify(data) }),
   addReading: (data: AddReadingPayload) => request<{ accepted: number; readings: unknown[] }>('/monitoreo/lecturas', { method: 'POST', body: JSON.stringify(data) }),
-  monitoringHistory: () => request<unknown>('/monitoreo/historico'),
-  notices: () => request<unknown>('/avisos'),
+  monitoringHistory: (params = '') => request<ApiSensorReading[]>(`/monitoreo/historico${params}`),
+  notices: (params = '') => request<ApiMonitoringAlert[]>(`/avisos${params}`),
   acknowledgeNotice: (id: number) => request<unknown>(`/avisos/${id}/acknowledge`, { method: 'PATCH' }),
   agent: {
     decisions: (params = '') => request<AgentDecision[] | { items?: AgentDecision[] }>(`/agente/decisiones${params}`),

@@ -21,6 +21,7 @@ import {
   type SupervisorRoomSummary,
   type SupervisorSummary,
 } from '@/lib/api'
+import { userFacingClientError } from '@/lib/user-facing-errors.mjs'
 import { useRealtimeEvents } from '@/hooks/use-realtime-events'
 import {
   AccessSimulatorPanel,
@@ -412,7 +413,7 @@ export function AccessZoneMonitor() {
 
       {summaryError && (
         <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-500/30 dark:bg-red-950/40 dark:text-red-200">
-          No se pudieron cargar las zonas de acceso: {summaryError instanceof Error ? summaryError.message : 'Error de API.'}
+          No se pudieron cargar las zonas de acceso: {userFacingClientError(summaryError)}
         </div>
       )}
 

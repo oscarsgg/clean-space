@@ -19,6 +19,7 @@ import {
   type AgentMessage,
   type SupervisorRoomSummary,
 } from '@/lib/api'
+import { userFacingClientError } from '@/lib/user-facing-errors.mjs'
 
 const QUICK_CHIPS = [
   { label: '¿Aforo actual en las salas?', prompt: '¿Cuál es el aforo actual de las salas limpias?' },
@@ -91,7 +92,7 @@ export function AgentConsole({
       setMessages(Array.isArray(detail.messages) ? detail.messages : [])
       setShowHistory(false)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudo cargar la conversación.')
+      setError(userFacingClientError(cause))
     } finally {
       setLoadingConv(false)
     }
@@ -125,7 +126,7 @@ export function AgentConsole({
       void mutateConversations()
       void mutate('agent-decisions')
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudo consultar al agente.')
+      setError(userFacingClientError(cause))
       setInput(trimmed)
     } finally {
       setSending(false)
@@ -147,7 +148,7 @@ export function AgentConsole({
       void mutate('supervisor-summary')
       void mutate('agent-decisions')
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudo procesar la confirmación.')
+      setError(userFacingClientError(cause))
     } finally {
       setConfirmingId(null)
     }
