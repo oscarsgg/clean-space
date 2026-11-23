@@ -25,49 +25,55 @@ export type SimulatedZoneFeedback = {
 }
 
 const UID_PRESETS = [
-  { uid: '04-A1-B2-C3', label: '04-A1-B2-C3 · Personal autorizado (Demo)' },
-  { uid: '04-D4-E5-F6', label: '04-D4-E5-F6 · Dra. Elena Vázquez (Demo)' },
-  { uid: '04-11-22-33', label: '04-11-22-33 · Supervisión CleanSpace (Demo)' },
-  { uid: 'FF-00-DE-AD', label: 'FF-00-DE-AD · Tarjeta no registrada' },
+  { uid: '04-A1-B2-C3', label: 'UID con permiso · 04-A1-B2-C3' },
+  { uid: '04-D4-E5-F6', label: 'UID con permiso · 04-D4-E5-F6' },
+  { uid: '04-11-22-33', label: 'UID de supervisión · 04-11-22-33' },
+  { uid: 'FF-00-DE-AD', label: 'UID sin registro · FF-00-DE-AD' },
 ]
 
 export function AccessSimulatorPanel({
   rooms,
   onSimulationEvent,
+  onRoomSelectionChange,
 }: {
   rooms: SupervisorRoomSummary[]
   onSimulationEvent?: (event: SimulatedZoneFeedback) => void
+  onRoomSelectionChange?: (roomId: number | null) => void
 }) {
   if (process.env.NEXT_PUBLIC_ENABLE_ACCESS_SIMULATOR === 'false') {
     return null
   }
 
-  return (
-    <AccessSimulatorCard rooms={rooms} onSimulationEvent={onSimulationEvent} />
-  )
+  return <AccessSimulatorCard rooms={rooms} onSimulationEvent={onSimulationEvent} onRoomSelectionChange={onRoomSelectionChange} />
 }
 
 function AccessSimulatorCard({
   rooms,
   onSimulationEvent,
+  onRoomSelectionChange,
 }: {
   rooms: SupervisorRoomSummary[]
   onSimulationEvent?: (event: SimulatedZoneFeedback) => void
+  onRoomSelectionChange?: (roomId: number | null) => void
 }) {
   const { mutate } = useSWRConfig()
   const [expanded, setExpanded] = useState(true)
-  const [selectedRoomId, setSelectedRoomId] = useState<number>(rooms[0]?.id ?? 0)
+  const [selectedRoomId, setSelectedRoomId] = useState<number | null>(null)
   const [uid, setUid] = useState<string>(UID_PRESETS[0].uid)
   const [busyAction, setBusyAction] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<{ tone: 'ok' | 'warn' | 'err'; text: string } | null>(null)
 
   useEffect(() => {
-    if (rooms.length > 0 && !rooms.some((r) => r.id === selectedRoomId)) {
-      setSelectedRoomId(rooms[0].id)
+    if (selectedRoomId !== null && !rooms.some((r) => r.id === selectedRoomId)) {
+      setSelectedRoomId(null)
     }
   }, [rooms, selectedRoomId])
 
-  const activeRoom = rooms.find((room) => room.id === selectedRoomId) ?? rooms[0]
+  const activeRoom = selectedRoomId === null ? undefined : rooms.find((room) => room.id === selectedRoomId)
+
+  useEffect(() => {
+    onRoomSelectionChange?.(activeRoom?.id ?? null)
+  }, [activeRoom?.id, onRoomSelectionChange])
 
   const refreshQueries = () => {
     void mutate('supervisor-summary')
@@ -224,7 +230,7 @@ function AccessSimulatorCard({
   }
 
   return (
-    <section className="rounded-2xl border border-dashed border-[#087f7b]/40 bg-[#eff8f7]/70 p-4 dark:border-[#2dd4bf]/30 dark:bg-[#10262e]/70">
+    <section className="rounded-2xl border border-[#d5e7e3] bg-white p-4 shadow-[0_8px_22px_rgba(16,44,58,0.035)] dark:border-[#1e4145] dark:bg-[#101e26]">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
           <div className="flex size-8 items-center justify-center rounded-xl bg-[#087f7b] text-white dark:bg-[#14b8a6] dark:text-[#042f2e]">
@@ -233,14 +239,14 @@ function AccessSimulatorCard({
           <div>
             <div className="flex items-center gap-2">
               <h3 className="text-sm font-semibold text-[#163542] dark:text-[#e6f0f2]">
-                Modo Simulador (Fase Actual)
+                Validación manual de accesos
               </h3>
-              <span className="rounded-md bg-white px-2 py-0.5 font-mono text-[10px] font-semibold text-[#087f7b] dark:bg-[#0d1820] dark:text-[#5eead4]">
-                Temporal · ESP32
+              <span className="rounded-full bg-[#eaf5f2] px-2.5 py-1 text-[10px] font-semibold text-[#087f7b] dark:bg-[#13313b] dark:text-[#5eead4]">
+                Control asistido
               </span>
             </div>
             <p className="text-xs text-[#58727c] dark:text-[#94adb8]">
-              Dispara peticiones reales contra FastAPI sin hardware físico conectado
+              Registra acciones de acceso y evalúa las reglas vigentes del cuarto seleccionado.
             </p>
           </div>
         </div>
@@ -261,10 +267,15 @@ function AccessSimulatorCard({
             <label className="flex flex-col gap-1 text-xs font-medium text-[#29434e] dark:text-[#d7e6ea]">
               <span>Cuarto limpio objetivo</span>
               <select
-                value={selectedRoomId}
-                onChange={(event) => setSelectedRoomId(Number(event.target.value))}
+                value={selectedRoomId ?? ''}
+                onChange={(event) => {
+                  const roomId = event.target.value ? Number(event.target.value) : null
+                  setSelectedRoomId(roomId)
+                  onRoomSelectionChange?.(roomId)
+                }}
                 className="rounded-xl border border-[#dce8eb] bg-white px-3 py-2 text-xs text-[#163542] outline-none focus:border-[#087f7b] dark:border-[#233a47] dark:bg-[#101e26] dark:text-[#e6f0f2]"
               >
+                <option value="">Seleccione un cuarto</option>
                 {rooms.map((room) => (
                   <option key={room.id} value={room.id}>
                     {room.code} · {room.name}
@@ -313,7 +324,7 @@ function AccessSimulatorCard({
               className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
             >
               {busyAction === 'grant' ? <LoaderCircle className="size-3.5 animate-spin" /> : <CheckCircle2 className="size-3.5" />}
-              Concedido
+              Validar acceso
             </button>
 
             <button
@@ -323,7 +334,7 @@ function AccessSimulatorCard({
               className="inline-flex items-center gap-1.5 rounded-xl bg-rose-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-rose-700 disabled:opacity-50"
             >
               {busyAction === 'deny' ? <LoaderCircle className="size-3.5 animate-spin" /> : <ShieldX className="size-3.5" />}
-              Denegado
+              Validar rechazo
             </button>
 
             <button
@@ -333,7 +344,7 @@ function AccessSimulatorCard({
               className="inline-flex items-center gap-1.5 rounded-xl bg-amber-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-amber-700 disabled:opacity-50"
             >
               {busyAction === 'lock' ? <LoaderCircle className="size-3.5 animate-spin" /> : <Lock className="size-3.5" />}
-              3 Rechazos (Bloqueo)
+              Probar bloqueo
             </button>
 
             <button
@@ -343,7 +354,7 @@ function AccessSimulatorCard({
               className="inline-flex items-center gap-1.5 rounded-xl bg-orange-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-orange-700 disabled:opacity-50"
             >
               {busyAction === 'anomaly' ? <LoaderCircle className="size-3.5 animate-spin" /> : <AlertTriangle className="size-3.5" />}
-              Anomalía PM2.5
+              Registrar lectura alta
             </button>
 
             <button
@@ -353,7 +364,7 @@ function AccessSimulatorCard({
               className="inline-flex items-center gap-1.5 rounded-xl border border-[#dce8eb] bg-white px-3 py-2 text-xs font-semibold text-[#163542] transition hover:bg-[#f4f9f8] disabled:opacity-50 dark:border-[#233a47] dark:bg-[#101e26] dark:text-[#e6f0f2] dark:hover:bg-[#182b36]"
             >
               {busyAction === 'exit' ? <LoaderCircle className="size-3.5 animate-spin" /> : <LogOut className="size-3.5" />}
-              Salida
+              Registrar salida
             </button>
           </div>
 

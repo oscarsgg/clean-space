@@ -117,15 +117,15 @@ docker compose up -d frontend
 Con la configuración predeterminada, el usuario administrador es:
 
 ```text
-Correo:       admin@cleanspace.local
+Correo:       admin@cleanspace.com
 Contraseña:   change_this_admin_password_123
 ```
 
 El script también crea cuentas de demostración para supervisor y personal:
 
 ```text
-Supervisor: supervisor@cleanspace.local / Supervisor_123!
-Personal:   personal@cleanspace.local   / Personal_123!
+Supervisor: supervisor@cleanspace.com / Supervisor_123!
+Personal:   personal@cleanspace.com   / Personal_123!
 ```
 
 Estas contraseñas son públicas y solo sirven para desarrollo local. Cámbialas antes de usar datos reales o publicar la aplicación.

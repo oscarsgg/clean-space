@@ -4,7 +4,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import useSWR from 'swr'
 import {
   AlertTriangle,
+  ArrowDownToLine,
+  ArrowUpFromLine,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   DoorOpen,
   Filter,
   LoaderCircle,
@@ -13,6 +17,7 @@ import {
   RefreshCw,
   Search,
   ShieldX,
+  Users,
 } from 'lucide-react'
 import {
   api,
@@ -85,19 +90,22 @@ const DENIAL_LABELS: Record<string, string> = {
   ROOM_FULL: 'Aforo máximo alcanzado',
 }
 
+const ROOMS_PER_PAGE = 6
+const ACCESS_EVENTS_PER_PAGE = 20
+
 export function AccessZoneMonitor() {
   const {
     data: summary,
     error: summaryError,
     isLoading: summaryLoading,
     mutate: mutateSummary,
-  } = useSWR<SupervisorSummary>('supervisor-summary', api.supervisorSummary)
+  } = useSWR<SupervisorSummary>('supervisor-summary', () => api.supervisorSummary())
 
   const {
     data: accessesRaw,
     isLoading: accessesLoading,
     mutate: mutateAccesses,
-  } = useSWR<ApiAccessEvent[]>('access-events', api.accesses)
+  } = useSWR<ApiAccessEvent[]>('access-events', () => api.accesses('?page=1&size=500'))
 
   const { data: peopleRaw } = useSWR('people-lookup', () => api.people())
 
@@ -108,8 +116,22 @@ export function AccessZoneMonitor() {
   const [resultFilter, setResultFilter] = useState<string>('ALL')
   const [directionFilter, setDirectionFilter] = useState<string>('ALL')
   const [searchQuery, setSearchQuery] = useState<string>('')
+  const [simulatorRoomId, setSimulatorRoomId] = useState<number | null>(null)
+  const [roomPage, setRoomPage] = useState(1)
+  const [accessPage, setAccessPage] = useState(1)
+  const handleSimulatorRoomChange = useCallback((roomId: number | null) => {
+    setSimulatorRoomId(roomId)
+    setRoomPage(1)
+  }, [])
 
   const rooms = summary?.rooms ?? []
+  const orderedRooms = useMemo(() => {
+    if (simulatorRoomId === null) return rooms
+    return rooms.filter((room) => room.id === simulatorRoomId)
+  }, [rooms, simulatorRoomId])
+  const roomPageCount = Math.max(1, Math.ceil(orderedRooms.length / ROOMS_PER_PAGE))
+  const activeRoomPage = Math.min(roomPage, roomPageCount)
+  const visibleRooms = orderedRooms.slice((activeRoomPage - 1) * ROOMS_PER_PAGE, activeRoomPage * ROOMS_PER_PAGE)
   const accesses = useMemo(
     () => (Array.isArray(accessesRaw) ? accessesRaw : []),
     [accessesRaw],
@@ -351,6 +373,9 @@ export function AccessZoneMonitor() {
       return hay.includes(term)
     })
   }, [accesses, roomFilter, resultFilter, directionFilter, searchQuery, peopleById, roomById])
+  const accessPageCount = Math.max(1, Math.ceil(filteredAccesses.length / ACCESS_EVENTS_PER_PAGE))
+  const activeAccessPage = Math.min(accessPage, accessPageCount)
+  const visibleAccesses = filteredAccesses.slice((activeAccessPage - 1) * ACCESS_EVENTS_PER_PAGE, activeAccessPage * ACCESS_EVENTS_PER_PAGE)
 
   return (
     <div className="flex flex-col gap-6">
@@ -397,18 +422,16 @@ export function AccessZoneMonitor() {
         </div>
       </div>
 
-      {/* KPIs rápidos */}
-      <section className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-        <MiniStat label="Eventos" value={summaryLoading ? '—' : String(summary?.total_events ?? 0)} />
-        <MiniStat label="Entradas" value={summaryLoading ? '—' : String(summary?.entries ?? 0)} accent="emerald" />
-        <MiniStat label="Salidas" value={summaryLoading ? '—' : String(summary?.exits ?? 0)} accent="sky" />
-        <MiniStat label="Denegados" value={summaryLoading ? '—' : String(summary?.denied ?? 0)} accent="rose" />
-        <MiniStat label="Personas dentro" value={summaryLoading ? '—' : String(summary?.current_occupancy ?? 0)} accent="teal" />
+      <section aria-label="Indicadores de acceso" className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
+        <MiniStat label="Eventos" detail="Periodo consultado" value={summaryLoading ? '—' : String(summary?.total_events ?? 0)} icon={<DoorOpen className="size-4" />} />
+        <MiniStat label="Entradas" detail="Registros de ingreso" value={summaryLoading ? '—' : String(summary?.entries ?? 0)} accent="emerald" icon={<ArrowDownToLine className="size-4" />} />
+        <MiniStat label="Salidas" detail="Registros de salida" value={summaryLoading ? '—' : String(summary?.exits ?? 0)} accent="sky" icon={<ArrowUpFromLine className="size-4" />} />
+        <MiniStat label="Denegados" detail="Validaciones rechazadas" value={summaryLoading ? '—' : String(summary?.denied ?? 0)} accent="rose" icon={<ShieldX className="size-4" />} />
+        <MiniStat label="Personas dentro" detail="Ocupación actual" value={summaryLoading ? '—' : String(summary?.current_occupancy ?? 0)} accent="teal" icon={<Users className="size-4" />} />
       </section>
 
-      {/* Simulador temporal aislado por bandera de entorno */}
       {process.env.NEXT_PUBLIC_ENABLE_ACCESS_SIMULATOR !== 'false' && rooms.length > 0 && (
-        <AccessSimulatorPanel rooms={rooms} onSimulationEvent={triggerZoneAnimation} />
+        <AccessSimulatorPanel rooms={rooms} onSimulationEvent={triggerZoneAnimation} onRoomSelectionChange={handleSimulatorRoomChange} />
       )}
 
       {summaryError && (
@@ -424,8 +447,10 @@ export function AccessZoneMonitor() {
           Cargando planos de esclusas…
         </div>
       ) : (
-        <section className="grid grid-cols-1 gap-5 xl:grid-cols-2">
-          {rooms.map((room, roomIndex) => {
+        <div className="space-y-3">
+        <div className="flex items-end justify-between gap-3"><div><h2 className="text-base font-semibold tracking-tight text-[#163542] dark:text-[#e6f0f2]">Zonas supervisadas</h2><p className="mt-1 text-xs text-[#82969d] dark:text-[#94adb8]">Ocupación, estado de acceso y lecturas ambientales por cuarto.</p></div><span className="rounded-full border border-[#dce7e8] bg-white px-3 py-1.5 text-xs font-semibold text-[#58727c] dark:border-[#1e3340] dark:bg-[#101e26] dark:text-[#d7e6ea]">{orderedRooms.length} {orderedRooms.length === 1 ? 'cuarto' : 'cuartos'}</span></div>
+        <section aria-label="Zonas de acceso" className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+          {visibleRooms.length === 0 ? <div className="rounded-2xl border border-dashed border-[#d6e3e4] bg-white px-6 py-12 text-center text-sm text-[#718995] dark:border-[#1e3340] dark:bg-[#101e26]">No hay cuartos disponibles para mostrar en esta cuenta.</div> : visibleRooms.map((room, roomIndex) => {
             const anim = zoneStates[room.id] ?? DEFAULT_ANIM
             const accentHex = roomIndex % 2 === 0 ? '#087f7b' : '#4f46e5'
             const accentBright = roomIndex % 2 === 0 ? '#2dd4bf' : '#818cf8'
@@ -461,7 +486,7 @@ export function AccessZoneMonitor() {
             return (
               <article
                 key={room.id}
-                className="flex flex-col justify-between overflow-hidden rounded-2xl border border-[#e5edf0] bg-white shadow-[0_8px_24px_rgba(18,49,66,0.04)] dark:border-[#1e3340] dark:bg-[#101e26]"
+                className={`flex flex-col justify-between overflow-hidden rounded-2xl border bg-white shadow-[0_8px_24px_rgba(18,49,66,0.04)] transition-[border-color,box-shadow] dark:bg-[#101e26] ${room.id === simulatorRoomId ? 'border-[#75bbb1] ring-2 ring-[#087f7b]/10 dark:border-[#2dd4bf]/50 dark:ring-[#2dd4bf]/10 xl:col-span-2 xl:grid xl:grid-cols-[minmax(0,1.35fr)_minmax(20rem,0.85fr)] xl:items-stretch' : 'border-[#e5edf0] dark:border-[#1e3340]'}`}
               >
                 <div>
                   <div className="flex items-center justify-between border-b border-[#edf2f3] px-5 py-4 dark:border-[#1e3340]">
@@ -476,6 +501,7 @@ export function AccessZoneMonitor() {
                         <span className="font-mono text-[#82969d] dark:text-[#94adb8]">
                           {room.device_code ?? 'Sin lector'}
                         </span>
+                        {room.id === simulatorRoomId && <span className="rounded-full bg-[#eaf5f2] px-2 py-0.5 text-[10px] font-semibold text-[#087f7b] dark:bg-[#13313b] dark:text-[#5eead4]">Cuarto seleccionado</span>}
                       </div>
                       <h2 className="mt-1 text-lg font-semibold text-[#163542] dark:text-[#e6f0f2]">
                         {room.name}
@@ -720,7 +746,7 @@ export function AccessZoneMonitor() {
                 </div>
 
                 {/* Historial reciente de la zona */}
-                <div className="border-t border-[#edf2f3] bg-[#f8fbfb] p-4 dark:border-[#1e3340] dark:bg-[#0d1820]">
+                <div className={`border-t border-[#edf2f3] bg-[#f8fbfb] p-4 dark:border-[#1e3340] dark:bg-[#0d1820] ${room.id === simulatorRoomId ? 'xl:border-l xl:border-t-0 xl:p-5' : ''}`}>
                   <div className="mb-2.5 flex items-center justify-between">
                     <h3 className="text-[11px] font-bold uppercase tracking-wider text-[#718995] dark:text-[#94adb8]">
                       Historial reciente · {room.code}
@@ -779,18 +805,16 @@ export function AccessZoneMonitor() {
             )
           })}
         </section>
+        </div>
       )}
 
-      {/* Bitácora unificada filtrable */}
-      <section className="overflow-hidden rounded-2xl border border-[#e5edf0] bg-white shadow-[0_8px_24px_rgba(18,49,66,0.04)] dark:border-[#1e3340] dark:bg-[#101e26]">
-        <div className="flex flex-col gap-3 border-b border-[#edf2f3] p-5 dark:border-[#1e3340] lg:flex-row lg:items-center lg:justify-between">
+      {!summaryLoading && !summaryError && orderedRooms.length > ROOMS_PER_PAGE && <nav aria-label="Paginación de cuartos" className="flex flex-col gap-3 rounded-2xl border border-[#e5edf0] bg-white px-4 py-3 text-xs text-[#718995] shadow-[0_4px_16px_rgba(18,49,66,0.03)] sm:flex-row sm:items-center sm:justify-between sm:px-5 dark:border-[#1e3340] dark:bg-[#101e26] dark:text-[#94adb8]"><span>Cuartos <strong className="font-semibold text-[#29434e] dark:text-[#e6f0f2]">{(activeRoomPage - 1) * ROOMS_PER_PAGE + 1}–{Math.min(activeRoomPage * ROOMS_PER_PAGE, orderedRooms.length)}</strong> de <strong className="font-semibold text-[#29434e] dark:text-[#e6f0f2]">{orderedRooms.length}</strong></span><div className="flex items-center gap-2"><button type="button" disabled={activeRoomPage === 1} onClick={() => setRoomPage(Math.max(1, activeRoomPage - 1))} className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-[#dce8eb] px-3 font-semibold text-[#36515b] transition hover:bg-[#f4f9f8] disabled:opacity-40 dark:border-[#233a47] dark:text-[#d7e6ea] dark:hover:bg-[#15242e]"><ChevronLeft className="size-3.5" />Anterior</button><span aria-live="polite" className="min-w-14 text-center font-semibold tabular-nums text-[#36515b] dark:text-[#d7e6ea]">{activeRoomPage} / {roomPageCount}</span><button type="button" disabled={activeRoomPage === roomPageCount} onClick={() => setRoomPage(Math.min(roomPageCount, activeRoomPage + 1))} className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-[#dce8eb] px-3 font-semibold text-[#36515b] transition hover:bg-[#f4f9f8] disabled:opacity-40 dark:border-[#233a47] dark:text-[#d7e6ea] dark:hover:bg-[#15242e]">Siguiente<ChevronRight className="size-3.5" /></button></div></nav>}
+
+      <section aria-label="Bitácora de accesos" className="overflow-hidden rounded-2xl border border-[#dce7e8] bg-white shadow-[0_10px_28px_rgba(16,44,58,0.045)] dark:border-[#1e3340] dark:bg-[#101e26]">
+        <div className="flex flex-col gap-4 border-b border-[#e9efef] bg-[#fbfcfc] p-5 dark:border-[#1e3340] dark:bg-[#13222b] lg:flex-row lg:items-center lg:justify-between lg:px-6">
           <div>
-            <h2 className="text-base font-semibold text-[#163542] dark:text-[#e6f0f2]">
-              Bitácora unificada de accesos
-            </h2>
-            <p className="mt-0.5 text-xs text-[#82969d] dark:text-[#94adb8]">
-              Historial filtrado en tiempo real desde PostgreSQL
-            </p>
+            <div className="flex flex-wrap items-center gap-2.5"><h2 className="text-base font-semibold tracking-tight text-[#163542] dark:text-[#e6f0f2]">Bitácora de accesos</h2><span className="rounded-full bg-[#eaf5f2] px-2.5 py-1 text-[11px] font-semibold text-[#087f7b] dark:bg-[#13313b] dark:text-[#5eead4]">{filteredAccesses.length.toLocaleString('es-MX')} resultados</span></div>
+            <p className="mt-1 text-xs text-[#82969d] dark:text-[#94adb8]">Eventos recientes, ordenados por fecha y hora.</p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -799,9 +823,9 @@ export function AccessZoneMonitor() {
               <input
                 type="text"
                 value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
+                onChange={(event) => { setSearchQuery(event.target.value); setAccessPage(1) }}
                 placeholder="Buscar persona o motivo…"
-                className="rounded-xl border border-[#dce8eb] bg-[#f9fcfc] py-2 pr-3 pl-8 text-xs text-[#163542] outline-none focus:border-[#087f7b] dark:border-[#233a47] dark:bg-[#0d1820] dark:text-[#e6f0f2]"
+                className="min-h-10 w-full rounded-xl border border-[#dce8eb] bg-white py-2 pr-3 pl-8 text-xs text-[#163542] outline-none transition focus:border-[#087f7b] focus:ring-4 focus:ring-[#087f7b]/10 dark:border-[#233a47] dark:bg-[#0d1820] dark:text-[#e6f0f2] sm:w-56"
               />
             </label>
 
@@ -812,8 +836,8 @@ export function AccessZoneMonitor() {
             <select
               aria-label="Filtrar por cuarto limpio"
               value={roomFilter}
-              onChange={(event) => setRoomFilter(event.target.value)}
-              className="rounded-xl border border-[#dce8eb] bg-[#f9fcfc] px-2.5 py-2 text-xs text-[#29434e] outline-none focus:border-[#087f7b] dark:border-[#233a47] dark:bg-[#0d1820] dark:text-[#e6f0f2]"
+              onChange={(event) => { setRoomFilter(event.target.value); setAccessPage(1) }}
+              className="min-h-10 rounded-xl border border-[#dce8eb] bg-white px-2.5 py-2 text-xs text-[#29434e] outline-none focus:border-[#087f7b] dark:border-[#233a47] dark:bg-[#0d1820] dark:text-[#e6f0f2]"
             >
               <option value="ALL">Todas las salas</option>
               {rooms.map((room) => (
@@ -826,19 +850,19 @@ export function AccessZoneMonitor() {
             <select
               aria-label="Filtrar por resultado"
               value={resultFilter}
-              onChange={(event) => setResultFilter(event.target.value)}
-              className="rounded-xl border border-[#dce8eb] bg-[#f9fcfc] px-2.5 py-2 text-xs text-[#29434e] outline-none focus:border-[#087f7b] dark:border-[#233a47] dark:bg-[#0d1820] dark:text-[#e6f0f2]"
+              onChange={(event) => { setResultFilter(event.target.value); setAccessPage(1) }}
+              className="min-h-10 rounded-xl border border-[#dce8eb] bg-white px-2.5 py-2 text-xs text-[#29434e] outline-none focus:border-[#087f7b] dark:border-[#233a47] dark:bg-[#0d1820] dark:text-[#e6f0f2]"
             >
               <option value="ALL">Todos los resultados</option>
-              <option value="ALLOWED">ALLOWED</option>
-              <option value="DENIED">DENIED</option>
+              <option value="ALLOWED">Permitidos</option>
+              <option value="DENIED">Denegados</option>
             </select>
 
             <select
               aria-label="Filtrar por dirección"
               value={directionFilter}
-              onChange={(event) => setDirectionFilter(event.target.value)}
-              className="rounded-xl border border-[#dce8eb] bg-[#f9fcfc] px-2.5 py-2 text-xs text-[#29434e] outline-none focus:border-[#087f7b] dark:border-[#233a47] dark:bg-[#0d1820] dark:text-[#e6f0f2]"
+              onChange={(event) => { setDirectionFilter(event.target.value); setAccessPage(1) }}
+              className="min-h-10 rounded-xl border border-[#dce8eb] bg-white px-2.5 py-2 text-xs text-[#29434e] outline-none focus:border-[#087f7b] dark:border-[#233a47] dark:bg-[#0d1820] dark:text-[#e6f0f2]"
             >
               <option value="ALL">Entrada y salida</option>
               <option value="ENTRY">Entrada (ENTRY)</option>
@@ -858,7 +882,7 @@ export function AccessZoneMonitor() {
               No hay eventos que coincidan con los filtros aplicados.
             </p>
           ) : (
-            <table className="w-full text-left text-xs">
+            <table className="w-full min-w-[48rem] text-left text-xs">
               <thead className="border-b border-[#edf2f3] bg-[#f8fbfb] text-[11px] font-semibold uppercase tracking-wider text-[#718995] dark:border-[#1e3340] dark:bg-[#0d1820] dark:text-[#94adb8]">
                 <tr>
                   <th className="px-4 py-3">Fecha y hora</th>
@@ -870,7 +894,7 @@ export function AccessZoneMonitor() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#edf2f3] dark:divide-[#1e3340]">
-                {filteredAccesses.slice(0, 40).map((evt) => {
+                {visibleAccesses.map((evt) => {
                   const room = roomById.get(evt.cleanroom_id)
                   const personName = evt.user_id
                     ? (peopleById.get(evt.user_id) ?? `Usuario #${evt.user_id}`)
@@ -910,7 +934,7 @@ export function AccessZoneMonitor() {
                               : 'bg-rose-50 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300'
                           }`}
                         >
-                          {evt.result}
+                          {evt.result === 'ALLOWED' ? 'PERMITIDO' : evt.result === 'DENIED' ? 'DENEGADO' : evt.result}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-[#58727c] dark:text-[#94adb8]">
@@ -925,6 +949,7 @@ export function AccessZoneMonitor() {
             </table>
           )}
         </div>
+        {!accessesLoading && filteredAccesses.length > 0 && <div className="flex flex-col gap-3 border-t border-[#e9efef] bg-[#fbfcfc] px-5 py-4 text-xs text-[#82969d] dark:border-[#1e3340] dark:bg-[#13222b] dark:text-[#94adb8] sm:flex-row sm:items-center sm:justify-between sm:px-6"><span>Mostrando <strong className="font-semibold text-[#36515b] dark:text-[#d7e6ea]">{(activeAccessPage - 1) * ACCESS_EVENTS_PER_PAGE + 1}–{Math.min(activeAccessPage * ACCESS_EVENTS_PER_PAGE, filteredAccesses.length)}</strong> de <strong className="font-semibold text-[#36515b] dark:text-[#d7e6ea]">{filteredAccesses.length}</strong> coincidencias entre los últimos {accesses.length.toLocaleString('es-MX')} eventos cargados</span><nav aria-label="Paginación de la bitácora" className="flex items-center gap-2"><button type="button" disabled={activeAccessPage === 1} onClick={() => setAccessPage(Math.max(1, activeAccessPage - 1))} className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-[#dce8eb] bg-white px-3 font-semibold text-[#36515b] transition hover:bg-[#f4f9f8] disabled:cursor-not-allowed disabled:opacity-40 dark:border-[#233a47] dark:bg-[#101e26] dark:text-[#d7e6ea]"><ChevronLeft className="size-3.5" />Anterior</button><span aria-live="polite" className="min-w-14 text-center font-semibold tabular-nums text-[#36515b] dark:text-[#d7e6ea]">{activeAccessPage} / {accessPageCount}</span><button type="button" disabled={activeAccessPage === accessPageCount} onClick={() => setAccessPage(Math.min(accessPageCount, activeAccessPage + 1))} className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-[#dce8eb] bg-white px-3 font-semibold text-[#36515b] transition hover:bg-[#f4f9f8] disabled:cursor-not-allowed disabled:opacity-40 dark:border-[#233a47] dark:bg-[#101e26] dark:text-[#d7e6ea]">Siguiente<ChevronRight className="size-3.5" /></button></nav></div>}
       </section>
     </div>
   )
@@ -933,30 +958,30 @@ export function AccessZoneMonitor() {
 function MiniStat({
   label,
   value,
+  detail,
+  icon,
   accent = 'default',
 }: {
   label: string
   value: string
+  detail: string
+  icon: React.ReactNode
   accent?: 'default' | 'emerald' | 'sky' | 'rose' | 'teal'
 }) {
-  const color =
-    accent === 'emerald'
-      ? 'text-emerald-700 dark:text-emerald-300'
-      : accent === 'sky'
-        ? 'text-sky-700 dark:text-sky-300'
-        : accent === 'rose'
-          ? 'text-rose-700 dark:text-rose-300'
-          : accent === 'teal'
-            ? 'text-[#087f7b] dark:text-[#2dd4bf]'
-            : 'text-[#163542] dark:text-[#e6f0f2]'
+  const tones = {
+    default: 'bg-[#edf4f5] text-[#36515b] dark:bg-[#1b303a] dark:text-[#d7e6ea]',
+    emerald: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300',
+    sky: 'bg-sky-50 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300',
+    rose: 'bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300',
+    teal: 'bg-[#e7f5f2] text-[#087f7b] dark:bg-[#13313b] dark:text-[#2dd4bf]',
+  }[accent]
 
   return (
-    <div className="rounded-2xl border border-[#e5edf0] bg-white p-4 shadow-[0_8px_24px_rgba(18,49,66,0.04)] dark:border-[#1e3340] dark:bg-[#101e26]">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#82969d] dark:text-[#94adb8]">
-        {label}
-      </p>
-      <p className={`mt-1.5 text-2xl font-bold ${color}`}>{value}</p>
-    </div>
+    <article className="rounded-2xl border border-[#e2ebec] bg-white p-4 shadow-[0_5px_18px_rgba(18,49,66,0.035)] dark:border-[#1e3340] dark:bg-[#101e26] sm:p-5">
+      <div className="flex items-start justify-between gap-2"><p className="text-[10px] font-bold uppercase leading-4 tracking-[0.13em] text-[#82969d] dark:text-[#94adb8]">{label}</p><span className={`grid size-9 shrink-0 place-items-center rounded-xl ${tones}`}>{icon}</span></div>
+      <p className="mt-3 text-[1.7rem] font-semibold leading-none tracking-[-0.04em] tabular-nums text-[#163542] dark:text-[#e6f0f2] sm:text-3xl">{value}</p>
+      <p className="mt-2 truncate text-[11px] text-[#82969d] dark:text-[#94adb8]">{detail}</p>
+    </article>
   )
 }
 

@@ -72,10 +72,11 @@ function PortalNavigation({ role, items, pathname, onNavigate }: {
   const renderItem = ({ href, label, icon: Icon }: PortalNavItem) => {
     const active = role === 'admin' ? routeMatchesNavigation(pathname, href) : pathname === href || pathname.startsWith(`${href}/`)
     return <Link key={href} href={href} onClick={onNavigate} aria-current={active ? 'page' : undefined}
-      className={`group relative flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm transition duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring ${
-        active ? 'bg-[#1c4b56] font-semibold text-white shadow-[inset_3px_0_0_#5eead4]' : 'font-medium text-slate-400 hover:translate-x-0.5 hover:bg-white/[0.06] hover:text-white'
+      className={`group relative flex items-center gap-3 rounded-xl px-3 transition duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring ${role === 'supervisor'
+        ? `py-2.5 text-sm font-medium ${active ? 'bg-[#1c4b56] text-white' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`
+        : `min-h-11 text-sm ${active ? 'bg-[#1c4b56] font-semibold text-white shadow-[inset_3px_0_0_#5eead4]' : 'font-medium text-slate-400 hover:translate-x-0.5 hover:bg-white/[0.06] hover:text-white'}`
       }`}>
-      <Icon aria-hidden="true" className={`size-[18px] shrink-0 ${active ? 'text-[#5eead4]' : 'text-slate-500 group-hover:text-slate-300'}`} />
+      <Icon aria-hidden="true" className={`size-[18px] shrink-0 ${role === 'supervisor' ? '' : active ? 'text-[#5eead4]' : 'text-slate-500 group-hover:text-slate-300'}`} />
       <span className="min-w-0 flex-1 truncate">{label}</span>
     </Link>
   }
@@ -87,7 +88,7 @@ function PortalNavigation({ role, items, pathname, onNavigate }: {
     </div>)}
   </nav>
 
-  return <nav aria-label="Navegación de supervisión" className="mt-6 flex flex-col gap-1">{items.map(renderItem)}</nav>
+  return <nav aria-label="Navegación de supervisión" className="mt-3 flex flex-col gap-1">{items.map(renderItem)}</nav>
 }
 
 const THEME_STORAGE_KEY = 'cleanspace_theme'
@@ -309,7 +310,7 @@ export default function CleanSpacePortal({ role = 'admin' }: { role?: 'admin' | 
         </p>
         <PortalNavigation role={role} items={items} pathname={pathname} />
         <div className="mt-auto pt-4">
-          <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3.5">
+          <div className={`rounded-2xl border border-white/10 p-3 ${role === 'admin' ? 'bg-white/[0.04] sm:p-3.5' : 'bg-white/5'}`}>
             <div className="flex items-center gap-3">
               <div className="flex size-9 items-center justify-center rounded-full bg-[#d8efed] text-xs font-bold text-[#087f7b]">
                 {user.initials}
@@ -373,10 +374,11 @@ export default function CleanSpacePortal({ role = 'admin' }: { role?: 'admin' | 
             >
               <Menu className="size-4" />
             </button>
-            <div><p className="text-[11px] font-medium text-[#78909a] dark:text-[#94adb8]">CleanSpace <span aria-hidden="true">/</span> {role === 'admin' ? 'Administración' : 'Supervisión'}</p><h2 className="text-sm font-semibold text-[#29434e] dark:text-[#e6f0f2]">{items.find((item) => routeMatchesNavigation(pathname, item.href))?.label ?? 'Resumen'}</h2></div>
+            <div><p className="text-xs text-[#78909a] dark:text-[#94adb8]">CleanSpace / {role === 'admin' ? 'Administrador' : 'Supervisor'}</p><h2 className="text-sm font-semibold text-[#29434e] dark:text-[#e6f0f2]">{role === 'admin' ? items.find((item) => routeMatchesNavigation(pathname, item.href))?.label ?? 'Resumen' : items.find((item) => item.href === pathname)?.label ?? 'Resumen'}</h2></div>
           </div>
 
           <div className="flex items-center gap-2.5 sm:gap-3">
+            {role === 'supervisor' && <span className="hidden items-center gap-2 text-xs text-emerald-700 sm:flex dark:text-emerald-300"><span className="size-2 rounded-full bg-emerald-500" />Sistema conectado</span>}
             <button
               type="button"
               onClick={toggleTheme}

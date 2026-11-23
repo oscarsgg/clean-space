@@ -58,19 +58,19 @@ def run_seed():
             "ADMINISTRADOR",
         )
         sup = ensure_user(
-            "supervisor@cleanspace.local",
+            "supervisor@cleanspace.com",
             "Supervisor_123!",
             "Supervisión CleanSpace",
             "SUPERVISOR",
         )
         p1 = ensure_user(
-            "personal@cleanspace.local",
+            "personal@cleanspace.com",
             "Personal_123!",
             "Personal autorizado",
             "PERSONAL_AUTORIZADO",
         )
         p2 = ensure_user(
-            "elena@cleanspace.local",
+            "elena@cleanspace.com",
             "Personal_123!",
             "Dra. Elena Vázquez",
             "PERSONAL_AUTORIZADO",

@@ -328,7 +328,7 @@ def _setup_supervisor_fixture():
         )
 
         sup = User(
-            email=f"sup-{suffix}@cleanspace.local",
+            email=f"sup-{suffix}@cleanspace.com",
             password_hash=hash_password("Supervisor_123!"),
             full_name="Supervisor Test",
         )
@@ -337,7 +337,7 @@ def _setup_supervisor_fixture():
         db.add(sup)
 
         admin = User(
-            email=f"admin-{suffix}@cleanspace.local",
+            email=f"admin-{suffix}@cleanspace.com",
             password_hash=hash_password("Admin_123456!"),
             full_name="Admin Test",
         )
@@ -345,7 +345,7 @@ def _setup_supervisor_fixture():
         db.add(admin)
 
         op1 = User(
-            email=f"op1-{suffix}@cleanspace.local",
+            email=f"op1-{suffix}@cleanspace.com",
             password_hash=hash_password("Personal_123!"),
             full_name="Operador Uno",
         )
@@ -353,7 +353,7 @@ def _setup_supervisor_fixture():
         db.add(op1)
 
         op2 = User(
-            email=f"op2-{suffix}@cleanspace.local",
+            email=f"op2-{suffix}@cleanspace.com",
             password_hash=hash_password("Personal_123!"),
             full_name="Operador Dos",
         )

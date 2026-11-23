@@ -1,12 +1,13 @@
 'use client'
 
-import { useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
 import Link from 'next/link'
 import useSWR from 'swr'
 import { LoaderCircle, RefreshCw, ShieldCheck } from 'lucide-react'
 import { api, type ApiPerson, type ApiRoom } from '@/lib/api'
 import { userFacingClientError } from '@/lib/user-facing-errors.mjs'
 import { AdminFilterBar, AdminField, AdminStatusBadge, adminInputClass } from '@/components/admin-ui'
+import { CreateConfirmDialog } from '@/components/admin-creation-ui'
 
 type Permission = {
   id: number
@@ -19,7 +20,7 @@ type Permission = {
 
 type Option = { id: number; name: string }
 
-const fieldClass = 'w-full rounded-xl border border-[#dce8eb] bg-white px-3 py-2.5 text-sm text-[#163542] outline-none focus:border-[#087f7b] focus:ring-4 focus:ring-[#087f7b]/10'
+const fieldClass = 'min-h-11 w-full min-w-0 rounded-xl border border-[#cfdcde] bg-white px-3.5 text-sm text-[#163542] outline-none transition placeholder:text-[#91a3a8] focus:border-[#087f7b] focus:ring-4 focus:ring-[#087f7b]/10 disabled:cursor-not-allowed disabled:bg-[#f4f7f7] disabled:opacity-60'
 const buttonClass = 'inline-flex items-center justify-center gap-2 rounded-xl bg-[#087f7b] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#066c69] disabled:cursor-not-allowed disabled:opacity-60'
 
 function recordsFrom(value: unknown): Record<string, unknown>[] {
@@ -59,6 +60,8 @@ export function AccessPermissionManagement({ personId }: { personId?: number }) 
   const [search, setSearch] = useState('')
   const [filterRoom, setFilterRoom] = useState('')
   const [filterStatus, setFilterStatus] = useState('ALL')
+  const [confirmCreate, setConfirmCreate] = useState(false)
+  const pendingPermission = useRef<{ form: HTMLFormElement; userId: number; cleanroomId: number; validFrom: string; validUntil: string } | null>(null)
 
   const people = recordsFrom(peopleData) as unknown as ApiPerson[]
   const rooms = Array.isArray(roomsData) ? roomsData : []
@@ -99,19 +102,29 @@ export function AccessPermissionManagement({ personId }: { personId?: number }) 
       return
     }
 
+    pendingPermission.current = { form: formElement, userId, cleanroomId, validFrom, validUntil }
+    setConfirmCreate(true)
+  }
+
+  const confirmPermission = async () => {
+    const pending = pendingPermission.current
+    if (!pending) return
     setSaving(true)
     try {
       await api.createPermission({
-        user_id: userId,
-        cleanroom_id: cleanroomId,
-        valid_from: dateForApi(validFrom),
-        valid_until: dateForApi(validUntil),
+        user_id: pending.userId,
+        cleanroom_id: pending.cleanroomId,
+        valid_from: dateForApi(pending.validFrom),
+        valid_until: dateForApi(pending.validUntil),
         enabled: true,
       })
       await mutatePermissions()
-      formElement.reset()
+      pending.form.reset()
+      pendingPermission.current = null
+      setConfirmCreate(false)
       setSuccessMessage('Permiso creado y sincronizado con FastAPI.')
     } catch (cause) {
+      setConfirmCreate(false)
       setErrorMessage(userFacingClientError(cause))
     } finally {
       setSaving(false)
@@ -152,14 +165,15 @@ export function AccessPermissionManagement({ personId }: { personId?: number }) 
       <div className="mb-5 flex items-center gap-3"><div className="flex size-10 items-center justify-center rounded-xl bg-[#eff8f7] text-[#087f7b]"><ShieldCheck className="size-5" /></div><div><h2 className="font-semibold text-[#163542]">Nuevo permiso</h2><p className="text-xs text-[#82969d]">Los límites de vigencia son opcionales.</p></div></div>
       {loadError && <div role="alert" className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">No se pudieron cargar las opciones: {userFacingClientError(loadError)}</div>}
       {personId && !selectedPerson && !peopleLoading && <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">No se encontró esta persona en la respuesta de FastAPI.</div>}
-      <form onSubmit={createPermission} className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <form onSubmit={createPermission} className="grid min-w-0 gap-4 sm:grid-cols-2 2xl:grid-cols-4">
         {!personId && <label className="flex flex-col gap-2 text-sm font-medium text-[#29434e]">Persona<select className={fieldClass} required name="user_id" defaultValue="" disabled={peopleLoading || Boolean(peopleError)}><option value="" disabled>Seleccionar persona</option>{people.map((person) => <option key={person.id} value={person.id}>{person.full_name || person.email || `Persona #${person.id}`}{person.status === 'INACTIVE' ? ' · inactiva' : ''}</option>)}</select></label>}
         <label className="flex flex-col gap-2 text-sm font-medium text-[#29434e]">Cuarto<select className={fieldClass} required name="cleanroom_id" defaultValue="" disabled={roomsLoading || Boolean(roomsError)}><option value="" disabled>Seleccionar cuarto</option>{rooms.map((room) => <option key={room.id} value={room.id}>{room.name} · {room.code}</option>)}</select></label>
         <label className="flex flex-col gap-2 text-sm font-medium text-[#29434e]">Válido desde<input className={fieldClass} type="datetime-local" name="valid_from" /></label>
         <label className="flex flex-col gap-2 text-sm font-medium text-[#29434e]">Válido hasta<input className={fieldClass} type="datetime-local" name="valid_until" /></label>
-        <div className="flex items-end"><button disabled={saving || loading || (personId !== undefined && !selectedPerson)} className={buttonClass}>{saving && <LoaderCircle className="size-4 animate-spin" />}Crear permiso</button></div>
+        <div className="flex items-end"><button disabled={saving || loading || (personId !== undefined && !selectedPerson) || Boolean(loadError) || people.length === 0 || rooms.length === 0} className={`${buttonClass} min-h-11 w-full sm:w-auto`}>{saving && <LoaderCircle className="size-4 animate-spin" />}Crear permiso</button></div>
       </form>
     </section>
+    <CreateConfirmDialog open={confirmCreate} title="Crear permiso de acceso" description={`Confirma la asignación para ${personId ? selectedPerson?.full_name ?? `persona #${personId}` : 'la persona seleccionada'} en el cuarto indicado. La vigencia puede ser ilimitada si dejaste las fechas vacías.`} loading={saving} onCancel={() => { setConfirmCreate(false); pendingPermission.current = null }} onConfirm={() => void confirmPermission()} />
 
     <section className="overflow-hidden rounded-2xl border border-[#e5edf0] bg-white shadow-[0_8px_24px_rgba(18,49,66,0.04)]">
       <div className="flex items-center justify-between border-b border-[#edf2f3] px-5 py-4"><div><h2 className="font-semibold text-[#163542]">Permisos registrados</h2><p className="mt-1 text-xs text-[#82969d]">{visiblePermissions.length} resultados</p></div><button type="button" aria-label="Actualizar permisos" onClick={() => void Promise.all([mutatePermissions(), mutatePeople(), mutateRooms()])} className="rounded-lg p-2 text-[#58727c] hover:bg-[#f3f8f8]"><RefreshCw className="size-4" /></button></div>
