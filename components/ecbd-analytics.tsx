@@ -40,7 +40,7 @@ import {
   YAxis,
 } from 'recharts'
 import { AdminKpi, AdminPanel, AdminStatusBadge, adminInputClass } from '@/components/admin-ui'
-import { api, type AccessPatternCluster, type ModelResultItem, type SupervisorRoomSummary, type SupervisorSummary } from '@/lib/api'
+import { api, type AccessPatternCluster, type AnalyticsEtlResult, type ModelResultItem, type SupervisorRoomSummary, type SupervisorSummary } from '@/lib/api'
 import { useRealtimeEvents } from '@/hooks/use-realtime-events'
 
 type AnomalyAlert = {
@@ -63,11 +63,21 @@ type ModelAnomaly = {
 }
 
 type ModelSummary = {
+  run_id: number | null
+  prepared_rows: number
   training_rows: number
+  unusable_rows: number
+  groups_total: number
+  groups_trained: number
+  groups_skipped: number
   anomalies_detected: number
+  anomalies_available: number
+  anomalies_truncated: boolean
   anomaly_rate: number
+  contamination: number | null
   status: string
   metrics_included: string[]
+  evaluation: { mean_jaccard: number | null; seed_count: number; uses_ground_truth_labels: boolean } | null
   anomalies: ModelAnomaly[]
 }
 
@@ -114,13 +124,33 @@ function parseModelResult(result: ModelResultItem): ModelSummary {
         anomaly_score: Number(item.anomaly_score) || 0,
       }))
     : []
+  const parameters = raw.parameters && typeof raw.parameters === 'object' ? raw.parameters as Record<string, unknown> : {}
+  const evaluation = raw.evaluation && typeof raw.evaluation === 'object' ? raw.evaluation as Record<string, unknown> : null
+  const meanJaccard = evaluation?.mean_jaccard
+  const contamination = parameters.contamination
 
   return {
+    run_id: Number(raw.run_id) || null,
+    prepared_rows: Number(raw.prepared_rows) || 0,
     training_rows: Number(raw.training_rows) || 0,
+    unusable_rows: Number(raw.unusable_rows) || 0,
+    groups_total: Number(raw.groups_total) || 0,
+    groups_trained: Number(raw.groups_trained) || 0,
+    groups_skipped: Array.isArray(raw.groups_skipped) ? raw.groups_skipped.length : Number(raw.groups_skipped) || 0,
     anomalies_detected: Number(raw.anomalies_detected) || 0,
+    anomalies_available: Number(raw.anomalies_available) || anomalies.length,
+    anomalies_truncated: Boolean(raw.anomalies_truncated),
     anomaly_rate: Number(raw.anomaly_rate) || 0,
+    contamination: typeof contamination === 'number' && Number.isFinite(contamination) ? contamination : null,
     status: String(raw.status ?? 'unknown'),
     metrics_included: Array.isArray(raw.metrics_included) ? raw.metrics_included.map(String) : [],
+    evaluation: evaluation
+      ? {
+          mean_jaccard: typeof meanJaccard === 'number' && Number.isFinite(meanJaccard) ? meanJaccard : null,
+          seed_count: Number(evaluation.seed_count) || 0,
+          uses_ground_truth_labels: Boolean(evaluation.uses_ground_truth_labels),
+        }
+      : null,
     anomalies,
   }
 }
@@ -162,8 +192,9 @@ export function EcbdAnalytics({ variant = 'supervisor' }: { variant?: 'admin' | 
   const [readingMetric, setReadingMetric] = useState('')
   const [alertsPage, setAlertsPage] = useState(1)
   const [flaggedReadingsPage, setFlaggedReadingsPage] = useState(1)
+  const [etlSummary, setEtlSummary] = useState<AnalyticsEtlResult | null>(null)
   const [actionBusy, setActionBusy] = useState<'review' | 'analysis' | 'refresh' | null>(null)
-  const [actionMessage, setActionMessage] = useState<{ tone: 'success' | 'error'; text: string } | null>(null)
+  const [actionMessage, setActionMessage] = useState<{ tone: 'success' | 'warning' | 'error'; text: string } | null>(null)
 
   const analyticsQuery = useMemo(() => {
     const end = new Date()
@@ -177,7 +208,7 @@ export function EcbdAnalytics({ variant = 'supervisor' }: { variant?: 'admin' | 
   const { data: correlation, error: correlationError, isLoading: correlationLoading, mutate: mutateCorrelation } = useSWR(['ecbd-correlation', selectedRoomId ?? 'all'], () => api.analytics.correlation(selectedRoomId))
   const { data: patternsRaw, error: patternsError, isLoading: patternsLoading, mutate: mutatePatterns } = useSWR(['ecbd-patterns', analyticsQuery], () => api.analytics.accessPatterns(analyticsQuery))
   const { data: anomaliesRaw, error: anomaliesError, isLoading: anomaliesLoading, mutate: mutateAnomalies } = useSWR(['ecbd-anomalies', analyticsQuery], () => api.analytics.anomalies(analyticsQuery))
-  const { data: metricsRaw, error: metricsError, isLoading: metricsLoading, mutate: mutateMetrics } = useSWR('ecbd-metrics', () => api.analytics.metrics())
+  const { data: metricsRaw, error: metricsError, isLoading: metricsLoading, mutate: mutateMetrics } = useSWR(['ecbd-metrics', analyticsQuery], () => api.analytics.metrics(analyticsQuery))
   const { data: indicatorsRaw, error: indicatorsError, isLoading: indicatorsLoading, mutate: mutateIndicators } = useSWR(['ecbd-indicators', analyticsQuery], () => api.analytics.indicators(analyticsQuery))
   const { data: readingsRaw, error: readingsError, isLoading: readingsLoading, mutate: mutateReadings } = useSWR(['ecbd-series', analyticsQuery], () => api.analytics.series(analyticsQuery))
 
@@ -222,10 +253,21 @@ export function EcbdAnalytics({ variant = 'supervisor' }: { variant?: 'admin' | 
   const reviewRecords = async () => {
     setActionBusy('review')
     setActionMessage(null)
+    setEtlSummary(null)
     try {
-      const result = await api.analytics.runEtl()
-      setActionMessage({ tone: 'success', text: `Consulta completada: hay ${result.processed_readings.toLocaleString('es-MX')} lecturas ambientales y ${result.processed_accesses.toLocaleString('es-MX')} accesos registrados.` })
-      await Promise.all([mutateCorrelation(), mutatePatterns(), mutateAnomalies(), mutateMetrics(), mutateIndicators(), mutateReadings()])
+      const result = await api.analytics.runEtl(analyticsQuery)
+      setEtlSummary(result)
+      const prepared = result.quality.readings.prepared + result.quality.access_events.prepared
+      const excluded = result.quality.readings.rejected + result.quality.access_events.rejected
+      const sourceRows = result.sources.reduce((total, source) => total + source.source_rows, 0)
+      setActionMessage({
+        tone: prepared === 0 ? 'warning' : 'success',
+        text: sourceRows === 0
+          ? 'La preparación terminó, pero no había registros en el periodo seleccionado.'
+          : prepared === 0
+            ? `Se revisaron ${sourceRows.toLocaleString('es-MX')} registros, pero ninguno pasó las validaciones de calidad.`
+            : `Preparación completada: ${prepared.toLocaleString('es-MX')} registros guardados en el conjunto preparado${excluded ? `; ${excluded.toLocaleString('es-MX')} se apartaron por problemas de calidad` : ''}.`,
+      })
     } catch {
       setActionMessage({ tone: 'error', text: 'No se pudieron revisar los registros. Inténtalo de nuevo en unos momentos.' })
     } finally {
@@ -237,12 +279,17 @@ export function EcbdAnalytics({ variant = 'supervisor' }: { variant?: 'admin' | 
     setActionBusy('analysis')
     setActionMessage(null)
     try {
-      const result = await api.analytics.trainModel()
+      let preparedRun = etlSummary
+      if (!preparedRun) {
+        preparedRun = await api.analytics.runEtl(analyticsQuery)
+        setEtlSummary(preparedRun)
+      }
+      const result = await api.analytics.trainModel(preparedRun.run_id)
       const parsed = parseModelResult(result)
       const message = parsed.status === 'insufficient_data'
-        ? `Aún faltan lecturas para completar el análisis. Hay ${parsed.training_rows} y se necesitan al menos 5.`
-        : `Análisis actualizado: se revisaron ${parsed.training_rows.toLocaleString('es-MX')} lecturas y se señalaron ${parsed.anomalies_detected.toLocaleString('es-MX')} valores (${percentage(parsed.anomaly_rate)}).`
-      setActionMessage({ tone: parsed.status === 'insufficient_data' ? 'error' : 'success', text: message })
+        ? `El conjunto ${preparedRun.run_id} no tiene grupos suficientes para analizar. Se prepararon ${parsed.prepared_rows.toLocaleString('es-MX')} lecturas; cada cuarto y variable necesita al menos 5.`
+        : `Análisis actualizado desde el conjunto ${preparedRun.run_id}: ${parsed.training_rows.toLocaleString('es-MX')} lecturas en ${parsed.groups_trained} grupos; ${parsed.anomalies_detected.toLocaleString('es-MX')} candidatas para revisar (${percentage(parsed.anomaly_rate)} según el umbral configurado).`
+      setActionMessage({ tone: parsed.status === 'insufficient_data' ? 'warning' : 'success', text: message })
       setFlaggedReadingsPage(1)
       await Promise.all([mutateMetrics(), mutateAnomalies()])
     } catch {
@@ -257,22 +304,42 @@ export function EcbdAnalytics({ variant = 'supervisor' }: { variant?: 'admin' | 
       <div className="flex flex-col justify-between gap-6 xl:flex-row xl:items-end">
         <div className="min-w-0 max-w-3xl"><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#087f7b]">{variant === 'admin' ? 'Administración · análisis' : 'Supervisión · análisis'}</p><h1 className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-[#102d3b] sm:text-4xl">Análisis de lecturas y accesos</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-[#5f7880]">Explora cambios ambientales, horarios de acceso y alertas de los cuartos seleccionados.</p></div>
         <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:min-w-[34rem]">
-          <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold text-[#526c75]"><span className="flex items-center gap-1.5"><CalendarDays className="size-3.5 text-[#087f7b]" />Periodo</span><select aria-label="Periodo de análisis" value={periodDays} onChange={(event) => { setPeriodDays(Number(event.target.value)); setAlertsPage(1) }} className={adminInputClass}><option value={7}>Últimos 7 días</option><option value={30}>Últimos 30 días</option><option value={90}>Últimos 90 días</option></select></label>
-          <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold text-[#526c75]"><span className="flex items-center gap-1.5"><Users className="size-3.5 text-[#087f7b]" />Cuarto</span><select aria-label="Filtrar análisis por cuarto limpio" value={selectedRoomId ?? ''} onChange={(event) => { setSelectedRoomId(event.target.value ? Number(event.target.value) : undefined); setAlertsPage(1) }} className={adminInputClass}><option value="">Todos los cuartos</option>{rooms.map((room) => <option key={room.id} value={room.id}>{room.code} · {room.name}</option>)}</select></label>
+          <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold text-[#526c75]"><span className="flex items-center gap-1.5"><CalendarDays className="size-3.5 text-[#087f7b]" />Periodo</span><select aria-label="Periodo de análisis" value={periodDays} onChange={(event) => { setPeriodDays(Number(event.target.value)); setAlertsPage(1); setEtlSummary(null) }} className={adminInputClass}><option value={7}>Últimos 7 días</option><option value={30}>Últimos 30 días</option><option value={90}>Últimos 90 días</option></select></label>
+          <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold text-[#526c75]"><span className="flex items-center gap-1.5"><Users className="size-3.5 text-[#087f7b]" />Cuarto</span><select aria-label="Filtrar análisis por cuarto limpio" value={selectedRoomId ?? ''} onChange={(event) => { setSelectedRoomId(event.target.value ? Number(event.target.value) : undefined); setAlertsPage(1); setEtlSummary(null) }} className={adminInputClass}><option value="">Todos los cuartos</option>{rooms.map((room) => <option key={room.id} value={room.id}>{room.code} · {room.name}</option>)}</select></label>
         </div>
       </div>
       <div className="mt-5 flex flex-col gap-3 border-t border-[#cfe0dd] pt-4 sm:flex-row sm:items-center sm:justify-between">
-        <p className="flex items-center gap-2 text-xs leading-5 text-[#617a82]"><CircleHelp className="size-4 shrink-0 text-[#087f7b]" />El análisis de lecturas usa el historial disponible; el periodo se aplica a las tendencias y alertas.</p>
+        <p className="flex items-center gap-2 text-xs leading-5 text-[#617a82]"><CircleHelp className="size-4 shrink-0 text-[#087f7b]" />El periodo y el cuarto seleccionado delimitan las tendencias, alertas y preparación de registros.</p>
         <div className="flex flex-wrap gap-2">
-          <button type="button" disabled={actionBusy !== null} onClick={() => void reviewRecords()} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-[#d2e0df] bg-white px-3.5 text-xs font-semibold text-[#36515b] transition hover:bg-[#f4f9f8] disabled:opacity-55">{actionBusy === 'review' ? <LoaderCircle className="size-4 animate-spin" /> : <Database className="size-4 text-[#087f7b]" />}Revisar registros</button>
-          <button type="button" disabled={actionBusy !== null} onClick={() => void analyzeReadings()} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-[#087f7b] px-3.5 text-xs font-semibold text-white shadow-sm transition hover:-translate-y-px hover:bg-[#066c69] disabled:opacity-55">{actionBusy === 'analysis' ? <LoaderCircle className="size-4 animate-spin" /> : <BrainCircuit className="size-4" />}Analizar lecturas</button>
+          <button type="button" disabled={actionBusy !== null} onClick={() => void reviewRecords()} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-[#d2e0df] bg-white px-3.5 text-xs font-semibold text-[#36515b] transition hover:bg-[#f4f9f8] disabled:opacity-55">{actionBusy === 'review' ? <LoaderCircle className="size-4 animate-spin" /> : <Database className="size-4 text-[#087f7b]" />}{actionBusy === 'review' ? 'Preparando datos…' : 'Preparar datos'}</button>
+          <button type="button" disabled={actionBusy !== null} onClick={() => void analyzeReadings()} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-[#087f7b] px-3.5 text-xs font-semibold text-white shadow-sm transition hover:-translate-y-px hover:bg-[#066c69] disabled:opacity-55">{actionBusy === 'analysis' ? <LoaderCircle className="size-4 animate-spin" /> : <BrainCircuit className="size-4" />}{actionBusy === 'analysis' ? (etlSummary ? 'Analizando conjunto…' : 'Preparando y analizando…') : 'Analizar lecturas'}</button>
           <button type="button" disabled={actionBusy !== null} onClick={() => void refreshAll()} aria-label="Actualizar análisis" className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-[#d2e0df] bg-white px-3 text-xs font-semibold text-[#526c75] transition hover:bg-[#f4f9f8] disabled:opacity-55"><RefreshCw className={`size-4 ${actionBusy === 'refresh' ? 'animate-spin' : ''}`} /><span className="sm:hidden">Actualizar</span></button>
         </div>
       </div>
     </header>
 
-    {actionMessage && <div role={actionMessage.tone === 'error' ? 'alert' : 'status'} className={`flex items-start gap-3 rounded-2xl border px-4 py-3.5 text-sm leading-5 ${actionMessage.tone === 'error' ? 'border-amber-200 bg-amber-50 text-amber-950' : 'border-emerald-200 bg-emerald-50 text-emerald-900'}`}><span className="mt-0.5">{actionMessage.tone === 'error' ? <AlertTriangle className="size-4" /> : <CheckCircle2 className="size-4" />}</span>{actionMessage.text}</div>}
+    {actionMessage && <div role={actionMessage.tone === 'error' ? 'alert' : 'status'} className={`flex items-start gap-3 rounded-2xl border px-4 py-3.5 text-sm leading-5 ${actionMessage.tone === 'error' ? 'border-rose-200 bg-rose-50 text-rose-900' : actionMessage.tone === 'warning' ? 'border-amber-200 bg-amber-50 text-amber-950' : 'border-emerald-200 bg-emerald-50 text-emerald-900'}`}><span className="mt-0.5">{actionMessage.tone === 'success' ? <CheckCircle2 className="size-4" /> : <AlertTriangle className="size-4" />}</span>{actionMessage.text}</div>}
     {pageHasError && <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">No se pudieron cargar algunos indicadores. Actualiza la pantalla e inténtalo de nuevo.</div>}
+
+    {etlSummary && <AdminPanel title="Datos preparados" description={`Ejecución ${etlSummary.run_id} · ${formatDateTime(etlSummary.completed_at)} · periodo ${formatShortDate(etlSummary.scope.start_at)}–${formatShortDate(etlSummary.scope.end_at)}`}>
+      <div className="grid gap-3 p-5 sm:grid-cols-2 sm:p-6">
+        {etlSummary.sources.map((source) => {
+          const quality = source.name === 'sensor_readings' ? etlSummary.quality.readings : etlSummary.quality.access_events
+          return <div key={source.name} className="rounded-2xl border border-[#e4ecec] bg-[#f8fbfa] p-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.1em] text-[#82969d]">{source.type}</p>
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <ResultMetric label="Registros revisados" value={source.source_rows.toLocaleString('es-MX')} />
+              <ResultMetric label="Registros preparados" value={quality.prepared.toLocaleString('es-MX')} />
+            </div>
+            <p className={`mt-3 text-xs leading-5 ${quality.rejected ? 'text-amber-800' : 'text-[#617a82]'}`}>
+              {quality.rejected ? `${quality.rejected.toLocaleString('es-MX')} apartados por calidad; ${quality.duplicate_candidates.toLocaleString('es-MX')} duplicados detectados.` : 'No se encontraron registros que debieran apartarse.'}
+            </p>
+            {Object.keys(quality.rejected_by_reason).length > 0 && <ul className="mt-2 space-y-1 text-xs text-[#82969d]">{Object.entries(quality.rejected_by_reason).map(([reason, count]) => <li key={reason} className="flex justify-between gap-3"><span>{reason.replaceAll('_', ' ')}</span><span className="font-semibold tabular-nums">{count.toLocaleString('es-MX')}</span></li>)}</ul>}
+          </div>
+        })}
+        <p className="sm:col-span-2 text-xs leading-5 text-[#82969d]">Las lecturas originales se conservan. Este conjunto preparado guarda su periodo, transformaciones y relación con cada registro de origen para poder consultar cómo se obtuvo.</p>
+      </div>
+    </AdminPanel>}
 
     <section aria-label="Indicadores del periodo" className="grid min-w-0 grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
       <AdminKpi label="Lecturas ambientales" value={indicatorsLoading ? '—' : Number(indicators.total_readings ?? 0).toLocaleString('es-MX')} detail={`En los últimos ${periodDays} días`} icon={<Activity className="size-4" />} tone="blue" />
@@ -305,11 +372,11 @@ export function EcbdAnalytics({ variant = 'supervisor' }: { variant?: 'admin' | 
     </section>
 
     <section className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(20rem,0.85fr)]">
-      <AdminPanel title="Último análisis" description={latestModel ? `Actualizado ${formatDateTime(latestModel.trained_at)} · usa las lecturas disponibles de los cuartos administrados` : 'Los resultados aparecerán después de analizar las lecturas.'}>
-        {metricsLoading ? <div className="flex min-h-40 items-center justify-center gap-2 text-sm text-[#718995]"><LoaderCircle className="size-4 animate-spin" />Cargando resultados…</div> : metricsError ? <AnalyticsEmpty title="No se pudieron cargar los resultados" detail="Actualiza el análisis para intentarlo de nuevo." error /> : !latestModel || !latestSummary ? <AnalyticsEmpty title="Todavía no hay resultados" detail="Usa “Analizar lecturas” para revisar las mediciones disponibles." /> : latestSummary.status === 'insufficient_data' ? <div className="p-5 sm:p-6"><div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950"><p className="font-semibold">Aún faltan lecturas para analizar</p><p className="mt-1 leading-5">Hay {latestSummary.training_rows} lecturas disponibles; se necesitan al menos 5.</p></div></div> : <div className="p-5 sm:p-6"><div className="grid grid-cols-2 gap-3 sm:grid-cols-3"><ResultMetric label="Lecturas revisadas" value={latestSummary.training_rows.toLocaleString('es-MX')} /><ResultMetric label="Valores señalados" value={latestSummary.anomalies_detected.toLocaleString('es-MX')} tone="amber" /><ResultMetric label="Proporción señalada" value={percentage(latestSummary.anomaly_rate)} /></div><div className="mt-4 flex flex-wrap items-center gap-2"><span className="text-xs text-[#82969d]">Variables incluidas</span>{latestSummary.metrics_included.length ? latestSummary.metrics_included.map((metric) => <span key={metric} className="rounded-full bg-[#eff6f5] px-2.5 py-1 text-[11px] font-medium text-[#365d5b]">{metricLabel(metric)}</span>) : <span className="text-xs text-[#82969d]">Sin detalle de variables</span>}</div><p className="mt-4 rounded-xl border border-[#e4ecec] bg-[#f8fbfa] px-3.5 py-3 text-xs leading-5 text-[#617a82]">Un valor señalado se aparta del comportamiento habitual del conjunto. Conviene revisarlo junto con el contexto del cuarto; por sí solo no confirma una falla.</p></div>}
+      <AdminPanel title="Último análisis" description={latestModel ? `Conjunto ${latestSummary?.run_id ?? 'anterior'} · ${formatDateTime(latestModel.trained_at)} · alcance definido al preparar los datos` : 'Los resultados aparecerán después de analizar un conjunto preparado.'}>
+        {metricsLoading ? <div className="flex min-h-40 items-center justify-center gap-2 text-sm text-[#718995]"><LoaderCircle className="size-4 animate-spin" />Cargando resultados…</div> : metricsError ? <AnalyticsEmpty title="No se pudieron cargar los resultados" detail="Actualiza el análisis para intentarlo de nuevo." error /> : !latestModel || !latestSummary ? <AnalyticsEmpty title="Todavía no hay resultados" detail="Prepara un conjunto y usa “Analizar lecturas” para revisarlo." /> : latestSummary.status === 'insufficient_data' ? <div className="p-5 sm:p-6"><div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950"><p className="font-semibold">No hay grupos con suficientes lecturas</p><p className="mt-1 leading-5">El conjunto contiene {latestSummary.prepared_rows.toLocaleString('es-MX')} lecturas preparadas. Se requieren al menos 5 dentro de cada combinación de cuarto, variable y unidad.</p>{latestSummary.groups_skipped > 0 && <p className="mt-2">{latestSummary.groups_skipped} grupos quedaron fuera por tamaño.</p>}</div></div> : <div className="p-5 sm:p-6"><div className="grid grid-cols-2 gap-3 sm:grid-cols-4"><ResultMetric label="Lecturas analizadas" value={latestSummary.training_rows.toLocaleString('es-MX')} /><ResultMetric label="Candidatas señaladas" value={latestSummary.anomalies_detected.toLocaleString('es-MX')} tone="amber" /><ResultMetric label="Proporción señalada" value={percentage(latestSummary.anomaly_rate)} /><ResultMetric label="Grupos evaluados" value={`${latestSummary.groups_trained}/${latestSummary.groups_total}`} /></div><div className="mt-4 flex flex-wrap items-center gap-2"><span className="text-xs text-[#82969d]">Variables incluidas</span>{latestSummary.metrics_included.length ? latestSummary.metrics_included.map((metric) => <span key={metric} className="rounded-full bg-[#eff6f5] px-2.5 py-1 text-[11px] font-medium text-[#365d5b]">{metricLabel(metric)}</span>) : <span className="text-xs text-[#82969d]">Sin detalle de variables</span>}</div>{latestSummary.groups_skipped > 0 && <p className="mt-3 text-xs text-amber-800">{latestSummary.groups_skipped} grupos omitidos por tener menos de 5 lecturas. {latestSummary.unusable_rows} registros preparados no pudieron usarse.</p>}<div className="mt-4 rounded-xl border border-[#e4ecec] bg-[#f8fbfa] p-3.5"><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-semibold text-[#36515b]">Estabilidad entre ejecuciones</p><span className="text-sm font-semibold tabular-nums text-[#087f7b]">{latestSummary.evaluation?.mean_jaccard == null ? '—' : percentage(latestSummary.evaluation.mean_jaccard)}</span></div><p className="mt-1 text-xs leading-5 text-[#82969d]">Coincidencia de lecturas señaladas al repetir el modelo con {latestSummary.evaluation?.seed_count || 3} semillas. Es una medida de consistencia, no de precisión; no hay etiquetas confirmadas para medir aciertos.</p></div><p className="mt-3 text-xs leading-5 text-[#82969d]">El modelo marca candidatas según el umbral configurado ({latestSummary.contamination === null ? 'sin detalle' : percentage(latestSummary.contamination)}). Una lectura señalada requiere revisión contextual y no confirma por sí sola una falla.</p></div>}
       </AdminPanel>
 
-      <AdminPanel title="Lecturas señaladas" description="Mediciones que más se apartan del comportamiento habitual en el último análisis">
+      <AdminPanel title="Lecturas señaladas" description={latestSummary?.anomalies_truncated ? `Mostrando las ${latestSummary.anomalies_available.toLocaleString('es-MX')} candidatas con puntuación más baja de ${latestSummary.anomalies_detected.toLocaleString('es-MX')}.` : 'Mediciones más atípicas dentro del conjunto analizado'}>
         {metricsLoading ? <div className="flex min-h-40 items-center justify-center gap-2 text-sm text-[#718995]"><LoaderCircle className="size-4 animate-spin" />Cargando resultados…</div> : !latestSummary || latestSummary.status === 'insufficient_data' ? <AnalyticsEmpty title="No hay lecturas para mostrar" detail="Completa un análisis cuando haya suficientes mediciones." /> : latestSummary.anomalies.length === 0 ? <AnalyticsEmpty title="No se señalaron lecturas" detail="El último análisis no encontró valores atípicos." /> : <div><ul className="divide-y divide-[#edf2f3]">{visibleFlaggedReadings.map((item) => <li key={item.reading_id} className="flex items-start justify-between gap-3 px-5 py-3.5 sm:px-6"><div className="min-w-0"><p className="text-sm font-semibold text-[#36515b]">{metricLabel(item.metric)} <span className="font-medium tabular-nums">{item.value} {item.unit}</span></p><p className="mt-1 truncate text-xs text-[#82969d]">{roomLabel(item.cleanroom_id, rooms)} · {formatDateTime(item.recorded_at)}</p></div><span className="shrink-0 rounded-full bg-amber-50 px-2.5 py-1 text-[10px] font-semibold text-amber-800">Revisar</span></li>)}</ul>{flaggedReadings.length > 3 && <RecordPagination page={currentFlaggedReadingsPage} pageCount={flaggedReadingsPageCount} total={flaggedReadings.length} onPageChange={setFlaggedReadingsPage} label="lecturas señaladas" />}</div>}
       </AdminPanel>
     </section>

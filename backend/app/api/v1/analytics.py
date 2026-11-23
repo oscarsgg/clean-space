@@ -1,20 +1,22 @@
+import json
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import output, require, utcnow
+from app.core.dependencies import ensure_room_access, output, require, utcnow
 from app.db.database import get_db
-from app.models import AccessEvent, Alert, Cleanroom, Device, ModelResult, MonitoringParameter, SensorReading, User
+from app.models import AccessEvent, Alert, AnalyticsRun, Cleanroom, Device, ModelResult, MonitoringParameter, PreparedAnalyticsRecord, SensorReading, User
 from app.services.ecbd import (
     as_utc,
     accessible_rooms,
     compute_access_patterns,
     compute_correlation,
     get_supervisor_summary,
-    train_isolation_forest,
 )
+from app.services.analytics_etl import prepare_analytics_data
+from app.services.isolation_forest import train_isolation_forest
 
 
 router = APIRouter(tags=["Analytics"])
@@ -30,35 +32,152 @@ def dashboard_period(start_at: datetime | None, end_at: datetime | None) -> tupl
     return start, end
 
 
+def serialize_etl_run(run: AnalyticsRun, include_details: bool = False) -> dict:
+    summary = json.loads(run.summary_json or "{}")
+    if not include_details:
+        summary.pop("daily_reading_summary", None)
+        summary.pop("hourly_access_summary", None)
+    return {
+        "id": run.id,
+        "status": run.status,
+        "cleanroom_id": run.cleanroom_id,
+        "period_start": run.period_start,
+        "period_end": run.period_end,
+        "source_readings": run.source_readings,
+        "prepared_readings": run.prepared_readings,
+        "source_accesses": run.source_accesses,
+        "prepared_accesses": run.prepared_accesses,
+        "started_at": run.started_at,
+        "completed_at": run.completed_at,
+        "summary": summary,
+        **({"error_message": run.error_message} if include_details else {}),
+    }
+
+
 @router.post("/analitica/etl/ejecutar")
 def run_etl(
+    cleanroom_id: int | None = None,
+    start_at: datetime | None = None,
+    end_at: datetime | None = None,
     db: Session = Depends(get_db),
     user=Depends(require("ADMINISTRADOR", "SUPERVISOR")),
 ):
-    return {
-        "status": "completed",
-        "processed_readings": db.scalar(select(func.count(SensorReading.id))) or 0,
-        "processed_accesses": db.scalar(select(func.count(AccessEvent.id))) or 0,
-        "executed_at": utcnow(),
-    }
+    start, end = dashboard_period(start_at, end_at)
+    return prepare_analytics_data(db, user, start, end, cleanroom_id)
+
+
+@router.get("/analitica/etl/ejecuciones")
+def etl_runs(
+    limit: int = 20,
+    db: Session = Depends(get_db),
+    user=Depends(require("ADMINISTRADOR", "SUPERVISOR")),
+):
+    if not 1 <= limit <= 100:
+        raise HTTPException(422, "limit debe estar entre 1 y 100")
+    query = select(AnalyticsRun).order_by(desc(AnalyticsRun.started_at)).limit(limit)
+    if "ADMINISTRADOR" not in {role.code for role in user.roles}:
+        query = query.where(AnalyticsRun.initiated_by == user.id)
+    runs = db.scalars(query).all()
+    if "ADMINISTRADOR" not in {role.code for role in user.roles}:
+        allowed_room_ids = {room.id for room in accessible_rooms(db, user)}
+        visible_runs = []
+        for run in runs:
+            if run.initiated_by != user.id:
+                continue
+            run_room_ids = set(db.scalars(
+                select(PreparedAnalyticsRecord.cleanroom_id)
+                .where(PreparedAnalyticsRecord.run_id == run.id)
+                .distinct()
+            ).all())
+            if run_room_ids.issubset(allowed_room_ids):
+                visible_runs.append(run)
+        runs = visible_runs
+    return [serialize_etl_run(run) for run in runs]
+
+
+@router.get("/analitica/etl/ejecuciones/{run_id}")
+def etl_run_detail(
+    run_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(require("ADMINISTRADOR", "SUPERVISOR")),
+):
+    run = db.get(AnalyticsRun, run_id)
+    if not run:
+        raise HTTPException(404, "Ejecución no encontrada")
+    if "ADMINISTRADOR" not in {role.code for role in user.roles}:
+        if run.initiated_by != user.id:
+            raise HTTPException(404, "Ejecución no encontrada")
+        allowed_room_ids = {room.id for room in accessible_rooms(db, user)}
+        run_room_ids = set(db.scalars(
+            select(PreparedAnalyticsRecord.cleanroom_id)
+            .where(PreparedAnalyticsRecord.run_id == run.id)
+            .distinct()
+        ).all())
+        if not run_room_ids.issubset(allowed_room_ids):
+            raise HTTPException(403, "Ya no tienes acceso a los cuartos de esta ejecución")
+    return serialize_etl_run(run, include_details=True)
 
 
 @router.post("/analitica/modelo/entrenar")
 def train_model(
+    run_id: int | None = Query(default=None, gt=0),
     db: Session = Depends(get_db),
     user=Depends(require("ADMINISTRADOR", "SUPERVISOR")),
 ):
-    result = train_isolation_forest(db, user)
+    if run_id is None:
+        start, end = dashboard_period(None, None)
+        prepared_run = prepare_analytics_data(db, user, start, end)
+        run_id = prepared_run["run_id"]
+    result = train_isolation_forest(db, user, run_id)
     return output(result)
 
 
 @router.get("/analitica/modelo/metricas")
-def model_metrics(db: Session = Depends(get_db), user=Depends(require("ADMINISTRADOR", "SUPERVISOR"))):
-    query = select(ModelResult).order_by(desc(ModelResult.trained_at)).limit(50)
-    room_ids = [room.id for room in accessible_rooms(db, user)] if "ADMINISTRADOR" not in {r.code for r in user.roles} else None
-    if room_ids is not None:
-        query = query.where(ModelResult.cleanroom_id.in_(room_ids)) if room_ids else query.where(False)
-    return output(db.scalars(query).all())
+def model_metrics(
+    cleanroom_id: int | None = None,
+    start_at: datetime | None = None,
+    end_at: datetime | None = None,
+    db: Session = Depends(get_db),
+    user=Depends(require("ADMINISTRADOR", "SUPERVISOR")),
+):
+    is_admin = "ADMINISTRADOR" in {role.code for role in user.roles}
+    if cleanroom_id is not None:
+        if is_admin:
+            if not db.get(Cleanroom, cleanroom_id):
+                raise HTTPException(404, "Cuarto no encontrado")
+        else:
+            ensure_room_access(user, cleanroom_id)
+
+    query = select(ModelResult).order_by(desc(ModelResult.trained_at))
+    if cleanroom_id is not None:
+        query = query.where(ModelResult.cleanroom_id == cleanroom_id)
+    if start_at is not None or end_at is not None:
+        start, end = dashboard_period(start_at, end_at)
+        if cleanroom_id is None:
+            query = query.where(ModelResult.cleanroom_id.is_(None))
+        query = query.where(
+            ModelResult.analytics_run_id.is_not(None),
+            AnalyticsRun.id == ModelResult.analytics_run_id,
+            AnalyticsRun.period_start < end,
+            AnalyticsRun.period_end > start,
+        )
+    if not is_admin:
+        query = query.where(ModelResult.analytics_run_id.is_not(None))
+    results = db.scalars(query.limit(100)).all()
+
+    if not is_admin:
+        allowed_room_ids = {room.id for room in accessible_rooms(db, user)}
+        visible_results = []
+        for result in results:
+            run_room_ids = set(db.scalars(
+                select(PreparedAnalyticsRecord.cleanroom_id)
+                .where(PreparedAnalyticsRecord.run_id == result.analytics_run_id)
+                .distinct()
+            ).all())
+            if run_room_ids.issubset(allowed_room_ids):
+                visible_results.append(result)
+        results = visible_results
+    return output(results[:50])
 
 
 @router.get("/analitica/anomalias")

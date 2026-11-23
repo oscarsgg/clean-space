@@ -144,7 +144,10 @@ Ejecutar la carga de demostración:
 
 ```powershell
 docker compose exec api python -m scripts.seed_data
+docker compose exec api python -m scripts.seed_analytics_demo
 ```
+
+El segundo comando agrega telemetría y accesos sintéticos de 30 días, alertas y ejecuciones ETL/Isolation Forest para la clase. Úsalo solo en una base local de demostración; los datos son ficticios. Consulta el [guion didáctico ETL e Isolation Forest](./docs/ecbd-data-preparation.md#conjunto-didáctico).
 
 Ver los registros de todos los servicios:
 

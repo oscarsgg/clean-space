@@ -21,7 +21,7 @@ Para apagar PostgreSQL sin borrar la base de datos: `docker compose down`. Para 
 ```powershell
 cd backend
 python -m venv .venv
-.venv\Scripts\activate.bat
+.\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 copy .env.example .env
 # Edita .env y cambia JWT_SECRET_KEY, RFID_HMAC_KEY e INITIAL_ADMIN_PASSWORD

@@ -44,6 +44,27 @@ def ensure_schema_updates(target_engine=engine):
             if "iso_class" not in existing_columns:
                 conn.execute(text("ALTER TABLE cleanrooms ADD COLUMN iso_class VARCHAR(20) DEFAULT 'ISO 7'"))
 
+    inspector = inspect(target_engine)
+    if inspector.has_table("model_results") and inspector.has_table("analytics_runs"):
+        model_columns = {col["name"] for col in inspector.get_columns("model_results")}
+        model_indexes = {index["name"] for index in inspector.get_indexes("model_results")}
+        with target_engine.begin() as conn:
+            if "analytics_run_id" not in model_columns:
+                if target_engine.dialect.name == "postgresql":
+                    conn.execute(text(
+                        "ALTER TABLE model_results ADD COLUMN IF NOT EXISTS analytics_run_id INTEGER "
+                        "REFERENCES analytics_runs(id) ON DELETE SET NULL"
+                    ))
+                else:
+                    conn.execute(text(
+                        "ALTER TABLE model_results ADD COLUMN analytics_run_id INTEGER "
+                        "REFERENCES analytics_runs(id) ON DELETE SET NULL"
+                    ))
+            if "ix_model_results_analytics_run_id" not in model_indexes:
+                conn.execute(text(
+                    "CREATE INDEX IF NOT EXISTS ix_model_results_analytics_run_id ON model_results (analytics_run_id)"
+                ))
+
 
 def get_db():
     db = SessionLocal()

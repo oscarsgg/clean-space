@@ -11,6 +11,7 @@ class ModelResult(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     cleanroom_id: Mapped[int | None] = mapped_column(ForeignKey("cleanrooms.id"), nullable=True)
+    analytics_run_id: Mapped[int | None] = mapped_column(ForeignKey("analytics_runs.id", ondelete="SET NULL"), nullable=True, index=True)
     model_type: Mapped[str] = mapped_column(String(40))
     metric: Mapped[str | None] = mapped_column(String(50), nullable=True)
     score: Mapped[float | None] = mapped_column(Float, nullable=True)

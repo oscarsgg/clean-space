@@ -1,5 +1,6 @@
 from .access import AccessEvent, AccessLog, AccessPermission, DoorPermission
 from .agent import AgentConversation, AgentDecisionLog, AgentMessage, AgentReport
+from .analytics import AnalyticsRun, PreparedAnalyticsRecord
 from .audit import AuditLog
 from .cleanroom import Cleanroom
 from .command import Command
@@ -20,6 +21,7 @@ __all__ = [
 	"AgentDecisionLog",
 	"AgentMessage",
 	"AgentReport",
+	"AnalyticsRun",
 	"Alert",
 	"AuditLog",
 	"Cleanroom",
@@ -29,6 +31,7 @@ __all__ = [
 	"Employee",
 	"ModelResult",
 	"MonitoringParameter",
+	"PreparedAnalyticsRecord",
 	"RefreshSession",
 	"RfidCard",
 	"RfidTag",

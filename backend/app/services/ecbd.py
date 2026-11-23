@@ -1,11 +1,9 @@
-import json
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import numpy as np
 from sklearn.cluster import KMeans
-from sklearn.ensemble import IsolationForest
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
@@ -15,7 +13,6 @@ from app.models import (
     Alert,
     Cleanroom,
     Device,
-    ModelResult,
     MonitoringParameter,
     RfidCard,
     SensorReading,
@@ -439,99 +436,3 @@ def compute_access_patterns(
         }
         for idx, (hour, count) in enumerate(rows)
     ]
-
-
-def train_isolation_forest(db: Session, user: User) -> ModelResult:
-    query = select(SensorReading).order_by(SensorReading.recorded_at.asc(), SensorReading.id.asc())
-    if "ADMINISTRADOR" not in {role.code for role in user.roles}:
-        room_ids = [room.id for room in user.assigned_cleanrooms]
-        if room_ids:
-            query = query.where(SensorReading.cleanroom_id.in_(room_ids))
-        else:
-            query = query.where(SensorReading.id == -1)
-
-    readings = db.scalars(query.limit(2000)).all()
-    if len(readings) < 5:
-        result = ModelResult(
-            model_type="isolation_forest",
-            metric="multi_metric",
-            score=0.0,
-            result_json=json.dumps(
-                {
-                    "training_rows": len(readings),
-                    "anomalies_detected": 0,
-                    "anomaly_rate": 0.0,
-                    "status": "insufficient_data",
-                    "anomalies": [],
-                }
-            ),
-        )
-        db.add(result)
-        db.commit()
-        db.refresh(result)
-        return result
-
-    by_metric: dict[str, list[float]] = {}
-    for r in readings:
-        by_metric.setdefault(r.metric, []).append(float(r.value))
-
-    stats: dict[str, tuple[float, float]] = {}
-    for metric_name, vals in by_metric.items():
-        arr = np.array(vals, dtype=float)
-        mean_v = float(arr.mean())
-        std_v = float(arr.std()) or 1.0
-        stats[metric_name] = (mean_v, std_v)
-
-    feature_rows = []
-    for r in readings:
-        mean_v, std_v = stats[r.metric]
-        z_val = (float(r.value) - mean_v) / std_v
-        hour_norm = as_utc(r.recorded_at).hour / 23.0
-        feature_rows.append([z_val, hour_norm])
-
-    matrix = np.array(feature_rows, dtype=float)
-    model = IsolationForest(contamination=0.1, random_state=42)
-    preds = model.fit_predict(matrix)
-    scores = model.decision_function(matrix)
-
-    anomalies: list[dict[str, Any]] = []
-    for idx, pred in enumerate(preds):
-        if int(pred) == -1:
-            r = readings[idx]
-            anomalies.append(
-                {
-                    "reading_id": r.id,
-                    "cleanroom_id": r.cleanroom_id,
-                    "metric": r.metric,
-                    "value": round(float(r.value), 2),
-                    "unit": r.unit,
-                    "recorded_at": as_utc(r.recorded_at).isoformat(),
-                    "anomaly_score": round(float(scores[idx]), 4),
-                }
-            )
-
-    anomalies.sort(key=lambda item: item["anomaly_score"])
-    anomalies_detected = int((preds == -1).sum())
-    anomaly_rate = round(anomalies_detected / len(readings), 4)
-    mean_score = round(float(scores.mean()), 4)
-
-    result = ModelResult(
-        model_type="isolation_forest",
-        metric="multi_metric",
-        score=mean_score,
-        result_json=json.dumps(
-            {
-                "training_rows": len(readings),
-                "anomalies_detected": anomalies_detected,
-                "anomaly_rate": anomaly_rate,
-                "contamination": 0.1,
-                "metrics_included": sorted(by_metric.keys()),
-                "anomalies": anomalies[:20],
-                "status": "trained",
-            }
-        ),
-    )
-    db.add(result)
-    db.commit()
-    db.refresh(result)
-    return result

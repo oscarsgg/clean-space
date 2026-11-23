@@ -269,9 +269,26 @@ export type ApiMonitoringAlert = {
 
 export type ModelResultItem = {
   id: number
+  cleanroom_id?: number | null
+  analytics_run_id?: number | null
   model_type: string
+  metric?: string | null
+  score?: number | null
   result_json: string
   trained_at: string
+}
+
+export type AnalyticsEtlResult = {
+  run_id: number
+  status: 'completed'
+  scope: { cleanroom_id: number | null; start_at: string; end_at: string }
+  sources: Array<{ name: string; type: string; structure: string[]; source_rows: number; prepared_rows: number }>
+  quality: {
+    readings: { prepared: number; rejected: number; duplicate_candidates: number; rejected_by_reason: Record<string, number> }
+    access_events: { prepared: number; rejected: number; duplicate_candidates: number; rejected_by_reason: Record<string, number> }
+  }
+  transformations: string[]
+  completed_at: string
 }
 
 export type ApiRoomParameter = {
@@ -558,12 +575,12 @@ export const api = {
     indicators: (params = '') => request<unknown>(`/analitica/indicadores${params}`),
     series: (params = '') => request<unknown>(`/analitica/series${params}`),
     accessPatterns: (params = '') => request<AccessPatternCluster[]>(`/analitica/patrones-acceso${params}`),
-    metrics: () => request<ModelResultItem[]>('/analitica/modelo/metricas'),
+    metrics: (params = '') => request<ModelResultItem[]>(`/analitica/modelo/metricas${params}`),
     correlation: (cleanroomId?: number) =>
       request<CorrelationResponse>(`/analitica/correlacion${cleanroomId ? `?cleanroom_id=${cleanroomId}` : ''}`),
-    runEtl: () =>
-      request<{ status: string; processed_readings: number; processed_accesses: number; executed_at: string }>('/analitica/etl/ejecutar', { method: 'POST' }),
-    trainModel: () => request<ModelResultItem>('/analitica/modelo/entrenar', { method: 'POST' }),
+    runEtl: (params = '') =>
+      request<AnalyticsEtlResult>(`/analitica/etl/ejecutar${params}`, { method: 'POST' }),
+    trainModel: (runId: number) => request<ModelResultItem>(`/analitica/modelo/entrenar?run_id=${runId}`, { method: 'POST' }),
   },
   adminSummary: (params = '') => request<AdminSummary>(`/dashboard/admin/summary${params}`),
   supervisorSummary: (params = '') => request<SupervisorSummary>(`/dashboard/supervisor/summary${params}`),
