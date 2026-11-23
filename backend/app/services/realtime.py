@@ -41,6 +41,7 @@ class RealtimeBroker:
         body = {
             "event": event_type,
             "data": payload,
+            "payload": payload,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         frame = f"event: {event_type}\ndata: {json.dumps(body, default=str)}\n\n"

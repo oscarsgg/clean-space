@@ -97,9 +97,9 @@ export function useRealtimeEvents(options: UseRealtimeOptions = {}) {
             ? parsed.type
             : eventType
       const payload =
-        parsed.payload && typeof parsed.payload === 'object'
-          ? (parsed.payload as Record<string, unknown>)
-          : parsed
+        (parsed.data && typeof parsed.data === 'object' ? (parsed.data as Record<string, unknown>) : null) ??
+        (parsed.payload && typeof parsed.payload === 'object' ? (parsed.payload as Record<string, unknown>) : null) ??
+        parsed
 
       setLastEvent({ type: resolvedType, payload, receivedAt: Date.now() })
       triggerMutate(resolvedType)

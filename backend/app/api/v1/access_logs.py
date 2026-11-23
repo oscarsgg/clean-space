@@ -2,14 +2,22 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
+<<<<<<< HEAD
 from app.core.dependencies import require
 from app.core.rfid import normalize_rfid_uid
+=======
+from app.core.dependencies import require_admin_or_jwt
+>>>>>>> 5d87d37 (Conexion con backend, nuevos endpoints y eliminacion de datos estaticos)
 from app.db.database import get_db
 from app.models import AccessLog, DoorPermission, Employee, RfidTag
 from app.schemas.access_logs import AccessLogCreate, AccessLogRead
 
 
-router = APIRouter(prefix="/access-logs", tags=["Access logs"])
+router = APIRouter(
+    prefix="/access-logs",
+    tags=["Access logs"],
+    dependencies=[Depends(require_admin_or_jwt)],
+)
 
 
 @router.post("/", response_model=AccessLogRead, status_code=201)

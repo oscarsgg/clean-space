@@ -2,13 +2,21 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+<<<<<<< HEAD
 from app.core.dependencies import require
+=======
+from app.core.dependencies import require_admin_or_jwt
+>>>>>>> 5d87d37 (Conexion con backend, nuevos endpoints y eliminacion de datos estaticos)
 from app.db.database import get_db
 from app.models.employee import Employee
 from app.schemas.employee import EmployeeCreate, EmployeeRead, EmployeeUpdate
 
 
-router = APIRouter(prefix="/employees", tags=["Employees"])
+router = APIRouter(
+    prefix="/employees",
+    tags=["Employees"],
+    dependencies=[Depends(require_admin_or_jwt)],
+)
 
 
 @router.post("/", response_model=EmployeeRead, status_code=status.HTTP_201_CREATED)

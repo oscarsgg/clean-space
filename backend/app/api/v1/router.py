@@ -15,6 +15,7 @@ from app.api.v1.people import router as people_router
 from app.api.v1.realtime import router as realtime_router
 from app.api.v1.rfid_tags import router as rfid_tags_router
 from app.api.v1.rooms import router as rooms_router
+from app.api.v1.facial_access import router as facial_router
 
 
 router = APIRouter()
@@ -33,3 +34,4 @@ router.include_router(rfid_tags_router)
 router.include_router(access_logs_router)
 router.include_router(door_permissions_router)
 router.include_router(device_access_router)
+router.include_router(facial_router)

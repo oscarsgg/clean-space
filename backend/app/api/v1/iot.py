@@ -221,9 +221,15 @@ def process_access_validation(
             elapsed = (as_utc(now_dt) - as_utc(last_entry.occurred_at)).total_seconds()
             stay_minutes = round(max(0.0, elapsed / 60.0), 2)
 
+    door_id = "entrada-principal" if device.cleanroom_id == 1 else f"puerta-{room_code.lower()}"
+    person_label = person.full_name if person else f"Tarjeta {uid}"
+
     event = AccessEvent(
         user_id=user_id,
         cleanroom_id=device.cleanroom_id,
+        door_id=door_id,
+        rfid_uid=uid,
+        person_name=person_label,
         rfid_card_id=card_id,
         source_device_id=device.id,
         result=result,

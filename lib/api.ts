@@ -57,6 +57,8 @@ export type SupervisorRoomSummary = {
   id: number
   code: string
   name: string
+  door_id?: string
+  door_name?: string
   iso_class: string
   capacity: number
   current_occupancy: number
@@ -232,9 +234,13 @@ export type AccessPatternCluster = {
 export type ApiAccessEvent = {
   id: number
   user_id: number | null
+  employee_id?: number | null
   cleanroom_id: number
   rfid_card_id: number | null
   source_device_id: number | null
+  rfid_uid?: string | null
+  door_id?: string | null
+  person_name?: string | null
   event_type: string
   direction: string
   result: string
@@ -524,7 +530,48 @@ export const api = {
   permissions: () => request<unknown>('/permisos'),
   createPermission: (data: Record<string, unknown>) => request<unknown>('/permisos', { method: 'POST', body: JSON.stringify(data) }),
   updatePermission: (id: number, data: Record<string, unknown>) => request<unknown>(`/permisos/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+<<<<<<< HEAD
   accesses: (params = '') => request<ApiAccessEvent[]>(`/accesos${params}`),
+=======
+  // IoT Hardware & Access Device Endpoints
+  employees: () => request<Array<{ id: number; firstName: string; lastName: string; department: string; isActive: boolean }>>('/employees/'),
+  createEmployee: (data: { firstName: string; lastName: string; department: string; isActive?: boolean }) => request<{ id: number; firstName: string; lastName: string; department: string; isActive: boolean }>('/employees/', { method: 'POST', body: JSON.stringify(data) }),
+  updateEmployee: (id: number, data: Partial<{ firstName: string; lastName: string; department: string; isActive: boolean }>) =>
+    request<{ id: number; firstName: string; lastName: string; department: string; isActive: boolean }>(`/employees/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteEmployee: (id: number) => request<void>(`/employees/${id}`, { method: 'DELETE' }),
+  rfidTags: () => request<Array<{ uid: string; isActive: boolean; assigned_date: string; employee_id: number | null }>>('/rfid-tags/'),
+  createRfidTag: (data: { uid: string; employee_id?: number | null; isActive?: boolean }) => request('/rfid-tags/', { method: 'POST', body: JSON.stringify(data) }),
+  lastScannedCard: () => request<{ uid: string | null; door_id: string | null; scanned_at: string | null; authorized: boolean | null; reason: string | null; person_name: string | null }>('/rfid-tags/last-scanned'),
+  doorPermissions: (doorId?: string) => request<Array<{ id: number; rfid_uid: string; door_id: string; is_active: boolean; created_at: string; employee_id?: number | null; employee_name?: string | null; department?: string | null }>>(`/permissions/${doorId ? `?door_id=${doorId}` : ''}`),
+  createDoorPermission: (data: { rfid_uid: string; door_id: string; is_active?: boolean; employee_id?: number | null }) => request('/permissions/', { method: 'POST', body: JSON.stringify(data) }),
+  deleteDoorPermission: (id: number) => request<void>(`/permissions/${id}`, { method: 'DELETE' }),
+  facialVerify: (data: { image_base64: string; door_id: string }) =>
+    request<{
+      authorized: boolean
+      reason: string
+      employee_id?: number
+      employee_name?: string
+      department?: string
+      confidence_score?: number
+      match_mode?: string
+      is_masked?: boolean
+      low_light_enhanced?: boolean
+      door_id: string
+      door_unlocked?: boolean
+      event_id?: number
+    }>('/facial/verify', { method: 'POST', body: JSON.stringify(data) }),
+  simulateFacialAccess: (data: { door_id?: string; mode?: 'grant' | 'deny'; employee_id?: number }) =>
+    request<{
+      authorized: boolean
+      reason: string
+      employee_id?: number
+      employee_name?: string
+      department?: string
+      door_id: string
+    }>('/facial/simulate', { method: 'POST', body: JSON.stringify(data) }),
+  accessLogs: (limit = 100) => request<Array<{ id: number; rfid_uid: string; render_id: string; access_status: string; created_at: string }>>(`/access-logs/?limit=${limit}`),
+  accesses: () => request<ApiAccessEvent[]>('/accesos'),
+>>>>>>> 5d87d37 (Conexion con backend, nuevos endpoints y eliminacion de datos estaticos)
   commands: () => request<ApiCommand[]>('/comandos'),
   sendCommand: (data: SendCommandPayload) => request<ApiCommand>('/comandos', { method: 'POST', body: JSON.stringify(data) }),
   simulateAccess: (data: SimulateAccessPayload) => request<SimulateAccessResponse>('/iot/simular-acceso', { method: 'POST', body: JSON.stringify(data) }),

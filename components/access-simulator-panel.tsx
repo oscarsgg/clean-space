@@ -1,9 +1,10 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useSWRConfig } from 'swr'
+import useSWR, { useSWRConfig } from 'swr'
 import {
   AlertTriangle,
+  Camera,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
@@ -11,7 +12,9 @@ import {
   LoaderCircle,
   Lock,
   LogOut,
+  ShieldAlert,
   ShieldX,
+  UserCheck,
 } from 'lucide-react'
 import { api, type SupervisorRoomSummary } from '@/lib/api'
 import { userFacingClientError } from '@/lib/user-facing-errors.mjs'
@@ -23,13 +26,6 @@ export type SimulatedZoneFeedback = {
   detail: string
   stayMinutes?: number | null
 }
-
-const UID_PRESETS = [
-  { uid: '04-A1-B2-C3', label: '04-A1-B2-C3 · Personal autorizado (Demo)' },
-  { uid: '04-D4-E5-F6', label: '04-D4-E5-F6 · Dra. Elena Vázquez (Demo)' },
-  { uid: '04-11-22-33', label: '04-11-22-33 · Supervisión CleanSpace (Demo)' },
-  { uid: 'FF-00-DE-AD', label: 'FF-00-DE-AD · Tarjeta no registrada' },
-]
 
 export function AccessSimulatorPanel({
   rooms,
@@ -55,11 +51,20 @@ function AccessSimulatorCard({
   onSimulationEvent?: (event: SimulatedZoneFeedback) => void
 }) {
   const { mutate } = useSWRConfig()
+  const { data: doorPermsData } = useSWR('door-permissions', () => api.doorPermissions())
+  const doorPerms = Array.isArray(doorPermsData) ? doorPermsData : []
+
   const [expanded, setExpanded] = useState(true)
   const [selectedRoomId, setSelectedRoomId] = useState<number>(rooms[0]?.id ?? 0)
-  const [uid, setUid] = useState<string>(UID_PRESETS[0].uid)
+  const [uid, setUid] = useState<string>('CARD-EMP-001')
   const [busyAction, setBusyAction] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<{ tone: 'ok' | 'warn' | 'err'; text: string } | null>(null)
+
+  useEffect(() => {
+    if (doorPerms.length > 0 && (!uid || uid === 'CARD-EMP-001')) {
+      setUid(doorPerms[0].rfid_uid)
+    }
+  }, [doorPerms, uid])
 
   useEffect(() => {
     if (rooms.length > 0 && !rooms.some((r) => r.id === selectedRoomId)) {
@@ -183,6 +188,46 @@ function AccessSimulatorCard({
     }
   }
 
+  const runFacialSimulation = async (mode: 'grant' | 'deny') => {
+    if (!activeRoom) return
+    setBusyAction(`facial-${mode}`)
+    setFeedback(null)
+    try {
+      const response = await api.simulateFacialAccess({ mode, door_id: activeRoom.code })
+      refreshQueries()
+      if (response.authorized) {
+        onSimulationEvent?.({
+          cleanroomId: activeRoom.id,
+          kind: 'entry-grant',
+          uid: `FACE-${response.employee_id ?? 1}`,
+          detail: `Acceso facial concedido para ${response.employee_name ?? 'Personal'}`,
+        })
+        setFeedback({
+          tone: 'ok',
+          text: `Acceso facial concedido en ${activeRoom.code} para ${response.employee_name ?? 'Personal autorizado'}.`,
+        })
+      } else {
+        onSimulationEvent?.({
+          cleanroomId: activeRoom.id,
+          kind: 'entry-deny',
+          uid: 'ROSTRO-DESCONOCIDO',
+          detail: 'Alerta de seguridad: Rostro no reconocido',
+        })
+        setFeedback({
+          tone: 'warn',
+          text: `Alerta de seguridad: Rostro no reconocido en ${activeRoom.code}. Alerta registrada en la bitácora.`,
+        })
+      }
+    } catch (cause) {
+      setFeedback({
+        tone: 'err',
+        text: cause instanceof Error ? cause.message : 'No se pudo probar el reconocimiento facial.',
+      })
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
   const runPm25Anomaly = async () => {
     if (!activeRoom) return
     if (!activeRoom.device_id) {
@@ -233,14 +278,14 @@ function AccessSimulatorCard({
           <div>
             <div className="flex items-center gap-2">
               <h3 className="text-sm font-semibold text-[#163542] dark:text-[#e6f0f2]">
-                Modo Simulador (Fase Actual)
+                Validación y pruebas de acceso
               </h3>
               <span className="rounded-md bg-white px-2 py-0.5 font-mono text-[10px] font-semibold text-[#087f7b] dark:bg-[#0d1820] dark:text-[#5eead4]">
-                Temporal · ESP32
+                Control multi-método
               </span>
             </div>
             <p className="text-xs text-[#58727c] dark:text-[#94adb8]">
-              Dispara peticiones reales contra FastAPI sin hardware físico conectado
+              Prueba la respuesta en tiempo real de accesos RFID y reconocimiento facial en esclusas
             </p>
           </div>
         </div>
@@ -274,38 +319,42 @@ function AccessSimulatorCard({
             </label>
 
             <label className="flex flex-col gap-1 text-xs font-medium text-[#29434e] dark:text-[#d7e6ea]">
-              <span>Tarjeta RFID predefinida</span>
+              <span>Tarjeta registrada</span>
               <select
-                value={UID_PRESETS.some((item) => item.uid === uid) ? uid : ''}
+                value={doorPerms.some((item) => item.rfid_uid === uid) ? uid : ''}
                 onChange={(event) => {
                   if (event.target.value) setUid(event.target.value)
                 }}
                 className="rounded-xl border border-[#dce8eb] bg-white px-3 py-2 text-xs text-[#163542] outline-none focus:border-[#087f7b] dark:border-[#233a47] dark:bg-[#101e26] dark:text-[#e6f0f2]"
               >
-                {UID_PRESETS.map((preset) => (
-                  <option key={preset.uid} value={preset.uid}>
-                    {preset.label}
+                {doorPerms.map((dp) => (
+                  <option key={dp.id} value={dp.rfid_uid}>
+                    {dp.rfid_uid} · {dp.employee_name || 'Personal'}
                   </option>
                 ))}
-                {!UID_PRESETS.some((item) => item.uid === uid) && (
-                  <option value="">UID personalizado</option>
+                <option value="TAG-NO-REGISTRADA">TAG-NO-REGISTRADA · Tarjeta no registrada</option>
+                {!doorPerms.some((item) => item.rfid_uid === uid) && uid !== 'TAG-NO-REGISTRADA' && (
+                  <option value={uid}>UID manual: {uid}</option>
                 )}
               </select>
             </label>
 
             <label className="flex flex-col gap-1 text-xs font-medium text-[#29434e] dark:text-[#d7e6ea]">
-              <span>UID manual</span>
+              <span>Código UID</span>
               <input
                 type="text"
                 value={uid}
                 onChange={(event) => setUid(event.target.value)}
-                placeholder="04-A1-B2-C3"
+                placeholder="A1B2C3D4"
                 className="rounded-xl border border-[#dce8eb] bg-white px-3 py-2 font-mono text-xs text-[#163542] outline-none focus:border-[#087f7b] dark:border-[#233a47] dark:bg-[#101e26] dark:text-[#e6f0f2]"
               />
             </label>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 pt-1">
+            <span className="w-full text-[11px] font-semibold text-[#58727c] dark:text-[#94adb8]">
+              Pruebas con Tarjeta RFID:
+            </span>
             <button
               type="button"
               disabled={!activeRoom || busyAction !== null}
@@ -313,7 +362,7 @@ function AccessSimulatorCard({
               className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
             >
               {busyAction === 'grant' ? <LoaderCircle className="size-3.5 animate-spin" /> : <CheckCircle2 className="size-3.5" />}
-              Concedido
+              Tarjeta autorizada
             </button>
 
             <button
@@ -323,7 +372,7 @@ function AccessSimulatorCard({
               className="inline-flex items-center gap-1.5 rounded-xl bg-rose-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-rose-700 disabled:opacity-50"
             >
               {busyAction === 'deny' ? <LoaderCircle className="size-3.5 animate-spin" /> : <ShieldX className="size-3.5" />}
-              Denegado
+              Tarjeta denegada
             </button>
 
             <button
@@ -339,21 +388,34 @@ function AccessSimulatorCard({
             <button
               type="button"
               disabled={!activeRoom || busyAction !== null}
-              onClick={() => void runPm25Anomaly()}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-orange-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-orange-700 disabled:opacity-50"
-            >
-              {busyAction === 'anomaly' ? <LoaderCircle className="size-3.5 animate-spin" /> : <AlertTriangle className="size-3.5" />}
-              Anomalía PM2.5
-            </button>
-
-            <button
-              type="button"
-              disabled={!activeRoom || busyAction !== null}
               onClick={() => void runAccess('exit')}
               className="inline-flex items-center gap-1.5 rounded-xl border border-[#dce8eb] bg-white px-3 py-2 text-xs font-semibold text-[#163542] transition hover:bg-[#f4f9f8] disabled:opacity-50 dark:border-[#233a47] dark:bg-[#101e26] dark:text-[#e6f0f2] dark:hover:bg-[#182b36]"
             >
               {busyAction === 'exit' ? <LoaderCircle className="size-3.5 animate-spin" /> : <LogOut className="size-3.5" />}
               Salida
+            </button>
+
+            <span className="mt-2 w-full text-[11px] font-semibold text-[#58727c] dark:text-[#94adb8]">
+              Pruebas con Reconocimiento Facial:
+            </span>
+            <button
+              type="button"
+              disabled={!activeRoom || busyAction !== null}
+              onClick={() => void runFacialSimulation('grant')}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-teal-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-teal-700 disabled:opacity-50"
+            >
+              {busyAction === 'facial-grant' ? <LoaderCircle className="size-3.5 animate-spin" /> : <UserCheck className="size-3.5" />}
+              Facial autorizado (Concedido)
+            </button>
+
+            <button
+              type="button"
+              disabled={!activeRoom || busyAction !== null}
+              onClick={() => void runFacialSimulation('deny')}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-purple-700 px-3 py-2 text-xs font-semibold text-white transition hover:bg-purple-800 disabled:opacity-50 shadow"
+            >
+              {busyAction === 'facial-deny' ? <LoaderCircle className="size-3.5 animate-spin" /> : <ShieldAlert className="size-3.5" />}
+              Facial desconocido (Generar Alerta)
             </button>
           </div>
 

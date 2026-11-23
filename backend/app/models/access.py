@@ -23,9 +23,13 @@ class AccessEvent(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
     cleanroom_id: Mapped[int] = mapped_column(ForeignKey("cleanrooms.id"), index=True)
     rfid_card_id: Mapped[int | None] = mapped_column(ForeignKey("rfid_cards.id"), nullable=True)
     source_device_id: Mapped[int | None] = mapped_column(ForeignKey("devices.id"), nullable=True)
+    rfid_uid: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    door_id: Mapped[str | None] = mapped_column(String(100), default="entrada-principal", nullable=True)
+    person_name: Mapped[str | None] = mapped_column(String(150), nullable=True)
     event_type: Mapped[str] = mapped_column(String(30), default="RFID")
     direction: Mapped[str] = mapped_column(String(20), default="ENTRY")
     result: Mapped[str] = mapped_column(String(20))

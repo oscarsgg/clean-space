@@ -37,26 +37,34 @@ def accessible_rooms(db: Session, user: User) -> list[Cleanroom]:
 
 def compute_room_occupancy(
     db: Session, cleanroom_id: int, window_hours: int = 24
-) -> dict[int, AccessEvent]:
+) -> dict[str, AccessEvent]:
     since = utcnow() - timedelta(hours=window_hours)
     events = db.scalars(
         select(AccessEvent)
         .where(
             AccessEvent.cleanroom_id == cleanroom_id,
             AccessEvent.result == "ALLOWED",
-            AccessEvent.user_id.is_not(None),
             AccessEvent.occurred_at >= since,
         )
         .order_by(AccessEvent.occurred_at.asc(), AccessEvent.id.asc())
     ).all()
-    inside: dict[int, AccessEvent] = {}
+    inside: dict[str, AccessEvent] = {}
     for ev in events:
-        if ev.user_id is None:
+        key = (
+            f"user_{ev.user_id}"
+            if ev.user_id
+            else (
+                f"emp_{ev.employee_id}"
+                if getattr(ev, "employee_id", None)
+                else (f"uid_{ev.rfid_uid}" if getattr(ev, "rfid_uid", None) else None)
+            )
+        )
+        if not key:
             continue
         if ev.direction == "ENTRY":
-            inside[ev.user_id] = ev
+            inside[key] = ev
         elif ev.direction == "EXIT":
-            inside.pop(ev.user_id, None)
+            inside.pop(key, None)
     return inside
 
 
@@ -162,22 +170,32 @@ def get_supervisor_summary(
     for room in rooms:
         inside_map = compute_room_occupancy(db, room.id)
         occupants: list[dict[str, Any]] = []
-        for uid, ev in inside_map.items():
-            occupant_user = db.get(User, uid)
-            card = db.get(RfidCard, ev.rfid_card_id) if ev.rfid_card_id else None
-            if not card and occupant_user:
-                card = db.scalar(
-                    select(RfidCard)
-                    .where(RfidCard.user_id == occupant_user.id)
-                    .order_by(RfidCard.id.asc())
-                )
-            uid_label = (
-                card.label if (card and card.label) else (f"RFID-{card.id}" if card else "Autorizado")
-            )
+        for key, ev in inside_map.items():
+            occupant_name = getattr(ev, "person_name", None)
+            uid_label = getattr(ev, "rfid_uid", None) or "Autorizado"
+            if ev.user_id:
+                occupant_user = db.get(User, ev.user_id)
+                if occupant_user:
+                    occupant_name = occupant_user.full_name
+                card = db.get(RfidCard, ev.rfid_card_id) if ev.rfid_card_id else None
+                if not card and occupant_user:
+                    card = db.scalar(
+                        select(RfidCard)
+                        .where(RfidCard.user_id == occupant_user.id)
+                        .order_by(RfidCard.id.asc())
+                    )
+                if card and card.label:
+                    uid_label = card.label
+            elif getattr(ev, "employee_id", None):
+                from app.models.employee import Employee
+                emp = db.get(Employee, ev.employee_id)
+                if emp:
+                    occupant_name = f"{emp.firstName} {emp.lastName}"
+
             occupants.append(
                 {
-                    "user_id": uid,
-                    "full_name": occupant_user.full_name if occupant_user else f"Usuario #{uid}",
+                    "user_id": ev.user_id or getattr(ev, "employee_id", 0) or 0,
+                    "full_name": occupant_name or f"Personal #{key}",
                     "uid_label": uid_label,
                 }
             )
@@ -232,11 +250,15 @@ def get_supervisor_summary(
 
         occ_count = len(occupants)
         total_occupancy += occ_count
+        door_id = "entrada-principal" if room.id == 1 else f"puerta-{room.code.lower()}"
+        door_name = "Entrada Principal" if room.id == 1 else f"Puerta {room.name}"
         room_cards.append(
             {
                 "id": room.id,
                 "code": room.code,
                 "name": room.name,
+                "door_id": door_id,
+                "door_name": door_name,
                 "iso_class": room.iso_class,
                 "capacity": room.capacity,
                 "current_occupancy": occ_count,

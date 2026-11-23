@@ -1,18 +1,27 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import Link from 'next/link'
 import useSWR from 'swr'
 import {
   AlertTriangle,
+  BellRing,
   CheckCircle2,
+  CreditCard,
   DoorOpen,
   Filter,
   LoaderCircle,
   Lock,
   LogOut,
   RefreshCw,
+  ScanFace,
   Search,
+  ShieldAlert,
   ShieldX,
+  UserPlus,
+  Volume2,
+  VolumeX,
+  X,
 } from 'lucide-react'
 import {
   api,
@@ -52,8 +61,8 @@ const DEFAULT_ANIM: ZoneAnimState = {
   walkerY: 285,
   walkerColor: '#64748b',
   walkerShake: false,
-  statusTitle: 'Lectores listos · esperando tarjeta',
-  statusDetail: 'Validación RFID activa con control de aforo y reglas reactivas',
+  statusTitle: 'Lector entrada-principal listo · esperando tarjeta',
+  statusDetail: 'Validación RFID y facial activa en esclusa Entrada Principal',
 }
 
 function occupantSlot(index: number) {
@@ -83,23 +92,57 @@ const DENIAL_LABELS: Record<string, string> = {
   CARD_NOT_FOUND: 'Tarjeta no registrada',
   CARD_INACTIVE: 'Tarjeta inactiva o vencida',
   ROOM_FULL: 'Aforo máximo alcanzado',
+  unknown_tag: 'Tarjeta RFID no registrada',
+  inactive_tag: 'Tarjeta RFID inactiva',
+  unassigned_tag: 'Tarjeta sin empleado asignado',
+  inactive_employee: 'Trabajador inactivo',
+  no_permission_for_door: 'Sin autorización para esta puerta',
+  unknown_face: 'Rostro no reconocido en base biométrica',
+  no_face_detected: 'Rostro no detectado por la cámara',
+  offline_denied: 'Acceso rechazado en modo offline',
+}
+
+function playSecurityBeep() {
+  if (typeof window === 'undefined') return
+  try {
+    const AudioCtx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+    if (!AudioCtx) return
+    const ctx = new AudioCtx()
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.type = 'sawtooth'
+    osc.frequency.setValueAtTime(587.33, ctx.currentTime) // D5
+    osc.frequency.setValueAtTime(440, ctx.currentTime + 0.14) // A4
+    gain.gain.setValueAtTime(0.18, ctx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.38)
+    osc.connect(gain)
+    gain.connect(ctx.destination)
+    osc.start()
+    osc.stop(ctx.currentTime + 0.38)
+  } catch {
+    // Ignore audio autoplay restrictions
+  }
 }
 
 export function AccessZoneMonitor() {
+  // SWR polling ensures live sync even if SSE reconnects
   const {
     data: summary,
     error: summaryError,
     isLoading: summaryLoading,
     mutate: mutateSummary,
-  } = useSWR<SupervisorSummary>('supervisor-summary', api.supervisorSummary)
+  } = useSWR<SupervisorSummary>('supervisor-summary', api.supervisorSummary, { refreshInterval: 3000 })
 
   const {
     data: accessesRaw,
     isLoading: accessesLoading,
     mutate: mutateAccesses,
-  } = useSWR<ApiAccessEvent[]>('access-events', api.accesses)
+  } = useSWR<ApiAccessEvent[]>('access-events', api.accesses, { refreshInterval: 2500 })
 
   const { data: peopleRaw } = useSWR('people-lookup', () => api.people())
+  const { data: employeesRaw } = useSWR('employees-lookup', api.employees)
 
   const [zoneStates, setZoneStates] = useState<Record<number, ZoneAnimState>>({})
   const timersRef = useRef<Record<number, ReturnType<typeof setTimeout>[]>>({})
@@ -108,6 +151,30 @@ export function AccessZoneMonitor() {
   const [resultFilter, setResultFilter] = useState<string>('ALL')
   const [directionFilter, setDirectionFilter] = useState<string>('ALL')
   const [searchQuery, setSearchQuery] = useState<string>('')
+  const [soundEnabled, setSoundEnabled] = useState(true)
+
+  // Prominent High-Visibility Security Alert
+  const [securityAlert, setSecurityAlert] = useState<{
+    id: number
+    title: string
+    doorId: string
+    doorName: string
+    method: 'RFID' | 'FACIAL'
+    personName: string
+    uid: string
+    reason: string
+    time: string
+  } | null>(null)
+
+  // Top banner for general live notification
+  const [liveNotification, setLiveNotification] = useState<{
+    id: number
+    title: string
+    detail: string
+    allowed: boolean
+    time: string
+    uid: string
+  } | null>(null)
 
   const rooms = summary?.rooms ?? []
   const accesses = useMemo(
@@ -130,6 +197,15 @@ export function AccessZoneMonitor() {
     }
     return map
   }, [peopleRaw])
+
+  const employeeById = useMemo(() => {
+    const list = Array.isArray(employeesRaw) ? employeesRaw : []
+    const map = new Map<number, string>()
+    for (const emp of list) {
+      map.set(emp.id, `${emp.firstName} ${emp.lastName}`)
+    }
+    return map
+  }, [employeesRaw])
 
   const roomById = useMemo(() => {
     const map = new Map<number, SupervisorRoomSummary>()
@@ -169,7 +245,7 @@ export function AccessZoneMonitor() {
         [roomId]: {
           ...DEFAULT_ANIM,
           phase: 'anomaly',
-          statusTitle: 'Anomalía ambiental detectada',
+          statusTitle: 'Anomalía de seguridad en esclusa',
           statusDetail: event.detail,
         },
       }))
@@ -192,7 +268,7 @@ export function AccessZoneMonitor() {
           walkerY: 112,
           walkerColor: '#0284c7',
           statusTitle: 'Validando salida en lector…',
-          statusDetail: `Tarjeta ${event.uid}`,
+          statusDetail: `Identificador ${event.uid}`,
         },
       }))
       queueTimer(350, () => {
@@ -205,7 +281,7 @@ export function AccessZoneMonitor() {
             scanning: false,
             walkerX: 200,
             walkerY: 175,
-            statusTitle: 'Salida registrada',
+            statusTitle: 'Salida registrada en Entrada Principal',
             statusDetail: event.detail,
           },
         }))
@@ -250,8 +326,8 @@ export function AccessZoneMonitor() {
         walkerX: 195,
         walkerY: 215,
         walkerColor: '#64748b',
-        statusTitle: 'Leyendo tarjeta RFID…',
-        statusDetail: `UID ${event.uid}`,
+        statusTitle: 'Identificando credencial en entrada-principal…',
+        statusDetail: `${event.uid}`,
       },
     }))
 
@@ -268,10 +344,10 @@ export function AccessZoneMonitor() {
           walkerX: isGrant ? 200 : 120,
           walkerY: isGrant ? 120 : 275,
           statusTitle: isGrant
-            ? 'Acceso concedido'
+            ? '¡Acceso Concedido en Entrada Principal!'
             : isLock
-              ? 'Esclusa bloqueada (RN-10)'
-              : 'Acceso denegado',
+              ? '¡Esclusa Bloqueada por Seguridad!'
+              : '¡Alerta: Acceso Denegado en Entrada Principal!',
           statusDetail: event.detail,
         },
       }))
@@ -310,33 +386,117 @@ export function AccessZoneMonitor() {
   const { status: realtimeStatus } = useRealtimeEvents({
     mutateKeys: ['supervisor-summary', 'access-events'],
     onEvent: (eventType, payload) => {
-      if (eventType === 'access_event' && typeof payload.cleanroom_id === 'number') {
+      if (eventType === 'access_event') {
         const direction = String(payload.direction ?? 'ENTRY').toUpperCase()
         const result = String(payload.result ?? 'ALLOWED').toUpperCase()
-        const reason = typeof payload.denial_reason === 'string' ? payload.denial_reason : ''
+        const isAllowed = result === 'ALLOWED'
+        const method = String(payload.method ?? (payload.event_type === 'FACIAL' ? 'FACIAL' : 'RFID')).toUpperCase() as 'RFID' | 'FACIAL'
+        const isFacial = method === 'FACIAL'
+        const rawReason = typeof payload.denial_reason === 'string' ? payload.denial_reason : (payload.reason ? String(payload.reason) : '')
+        const friendlyReason = DENIAL_LABELS[rawReason] ?? rawReason
+        const personName = payload.person_name ? String(payload.person_name) : ''
+        const doorId = payload.door_id ? String(payload.door_id) : 'entrada-principal'
+        const doorDisplayName = doorId === 'entrada-principal' ? 'Entrada Principal' : doorId
+        const uidStr = String(payload.uid ?? payload.rfid_uid ?? '')
+        const timeStr = new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+
+        // General Notification Banner
+        setLiveNotification({
+          id: Date.now(),
+          title: isAllowed
+            ? (isFacial ? '¡Acceso Facial Concedido!' : '¡Acceso Concedido!')
+            : (isFacial ? 'Alerta: Acceso Facial Denegado' : 'Alerta: Acceso Denegado'),
+          detail: isFacial
+            ? `${personName || 'Rostro no identificado'} en ${doorDisplayName}${friendlyReason ? ` · Motivo: ${friendlyReason}` : ''}`
+            : `${personName || (uidStr ? `Tarjeta ${uidStr}` : 'Personal no registrado')} en ${doorDisplayName}${friendlyReason ? ` · Motivo: ${friendlyReason}` : ''}`,
+          allowed: isAllowed,
+          time: timeStr,
+          uid: uidStr,
+        })
+
+        // High-Visibility Modal Alert if access was DENIED
+        if (!isAllowed) {
+          if (soundEnabled) {
+            playSecurityBeep()
+          }
+          setSecurityAlert({
+            id: Date.now(),
+            title: isFacial
+              ? 'ALERTA DE SEGURIDAD: ACCESO FACIAL DENEGADO'
+              : 'ALERTA DE SEGURIDAD: ACCESO DENEGADO (RFID)',
+            doorId,
+            doorName: doorDisplayName,
+            method,
+            personName: personName || (isFacial ? 'Rostro no identificado' : (uidStr ? `Tarjeta desconocida (${uidStr})` : 'Personal no registrado')),
+            uid: uidStr,
+            reason: friendlyReason || 'Credencial o tarjeta no autorizada en esta esclusa',
+            time: timeStr,
+          })
+        }
+
+        const cleanroomId = typeof payload.cleanroom_id === 'number' ? payload.cleanroom_id : (rooms[0]?.id ?? 1)
         triggerZoneAnimation({
-          cleanroomId: payload.cleanroom_id,
+          cleanroomId,
           kind:
             direction === 'EXIT'
               ? 'exit'
-              : result === 'ALLOWED'
+              : isAllowed
                 ? 'entry-grant'
-                : reason === 'LOCKED'
+                : rawReason === 'LOCKED'
                   ? 'lockout'
                   : 'entry-deny',
-          uid: String(payload.uid ?? `#${payload.event_id ?? ''}`),
-          detail: reason ? (DENIAL_LABELS[reason] ?? reason) : 'Evento en vivo desde backend',
+          uid: uidStr || `#${payload.event_id ?? ''}`,
+          detail: friendlyReason || (isFacial ? 'Verificación facial' : 'Validación de tarjeta'),
         })
-      } else if (eventType === 'alert_created' && typeof payload.cleanroom_id === 'number') {
+      } else if (eventType === 'alert_created') {
+        const timeStr = new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+        const message = String(payload.message ?? 'Alerta de acceso emitida')
+        if (soundEnabled) {
+          playSecurityBeep()
+        }
+        setSecurityAlert({
+          id: Date.now(),
+          title: 'ALERTA DE SEGURIDAD CRÍTICA',
+          doorId: 'entrada-principal',
+          doorName: 'Entrada Principal',
+          method: 'RFID',
+          personName: 'Alerta del sistema',
+          uid: 'ALERTA',
+          reason: message,
+          time: timeStr,
+        })
+        const cleanroomId = typeof payload.cleanroom_id === 'number' ? payload.cleanroom_id : (rooms[0]?.id ?? 1)
         triggerZoneAnimation({
-          cleanroomId: payload.cleanroom_id,
+          cleanroomId,
           kind: 'anomaly',
           uid: 'ALERTA',
-          detail: String(payload.message ?? 'Alerta ambiental detectada'),
+          detail: message,
         })
       }
     },
   })
+
+  // Resolves the human name for an access event
+  const resolvePersonName = useCallback(
+    (evt: ApiAccessEvent): string => {
+      if (typeof evt.person_name === 'string' && evt.person_name.trim()) {
+        return evt.person_name.trim()
+      }
+      if (typeof evt.user_id === 'number') {
+        const found = peopleById.get(evt.user_id)
+        if (found) return found
+      }
+      if (typeof evt.employee_id === 'number') {
+        const foundEmp = employeeById.get(evt.employee_id)
+        if (foundEmp) return foundEmp
+      }
+      if (typeof evt.rfid_uid === 'string' && evt.rfid_uid.trim()) {
+        return `Tarjeta ${evt.rfid_uid}`
+      }
+      return 'Personal no registrado'
+    },
+    [peopleById, employeeById]
+  )
 
   const filteredAccesses = useMemo(() => {
     const term = searchQuery.trim().toLowerCase()
@@ -345,29 +505,183 @@ export function AccessZoneMonitor() {
       if (resultFilter !== 'ALL' && item.result.toUpperCase() !== resultFilter) return false
       if (directionFilter !== 'ALL' && item.direction.toUpperCase() !== directionFilter) return false
       if (!term) return true
-      const personName = item.user_id ? (peopleById.get(item.user_id) ?? `Usuario #${item.user_id}`) : 'No identificado'
+      const personName = resolvePersonName(item)
       const roomCode = roomById.get(item.cleanroom_id)?.code ?? `Cuarto #${item.cleanroom_id}`
-      const hay = `${personName} ${roomCode} ${item.denial_reason ?? ''} ${item.direction} ${item.result}`.toLowerCase()
+      const doorId = String(item.door_id ?? 'entrada-principal')
+      const uidStr = String(item.rfid_uid ?? '')
+      const reasonStr = String(item.denial_reason ?? '')
+      const hay = `${personName} ${roomCode} ${doorId} ${uidStr} ${reasonStr} ${item.direction} ${item.result}`.toLowerCase()
       return hay.includes(term)
     })
-  }, [accesses, roomFilter, resultFilter, directionFilter, searchQuery, peopleById, roomById])
+  }, [accesses, roomFilter, resultFilter, directionFilter, searchQuery, resolvePersonName, roomById])
 
   return (
     <div className="flex flex-col gap-6">
+      {/* MODAL DE ALERTA DE SEGURIDAD EN ALTO IMPACTO (ACCESO DENEGADO) */}
+      {securityAlert && (
+        <div
+          role="alertdialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-in fade-in duration-200"
+        >
+          <div className="w-full max-w-lg rounded-2xl border-2 border-rose-500 bg-white p-6 shadow-2xl dark:bg-[#101e26] dark:border-rose-600">
+            {/* Cabecera de Alerta con luz intermitente */}
+            <div className="flex items-start justify-between border-b border-rose-200 pb-4 dark:border-rose-900/50">
+              <div className="flex items-center gap-3">
+                <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-rose-600 text-white shadow-lg shadow-rose-600/30 animate-pulse">
+                  <ShieldAlert className="size-7" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="rounded-full bg-rose-100 px-2.5 py-0.5 font-mono text-[10px] font-bold text-rose-800 uppercase dark:bg-rose-950/80 dark:text-rose-300">
+                      Incidencia en tiempo real
+                    </span>
+                    <span className="font-mono text-xs font-semibold text-rose-600 dark:text-rose-400">
+                      {securityAlert.time}
+                    </span>
+                  </div>
+                  <h3 className="mt-1 text-base font-extrabold text-rose-950 dark:text-rose-100">
+                    {securityAlert.title}
+                  </h3>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setSecurityAlert(null)}
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-[#182b36] dark:hover:text-slate-200"
+                aria-label="Cerrar alerta"
+              >
+                <X className="size-5" />
+              </button>
+            </div>
+
+            {/* Detalles estructurados del intento de acceso */}
+            <div className="mt-4 grid gap-3 rounded-xl bg-rose-50/70 p-4 text-xs dark:bg-rose-950/30">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-rose-900 dark:text-rose-300">Puerta / Esclusa:</span>
+                <span className="inline-flex items-center gap-1.5 font-bold text-rose-950 dark:text-rose-100">
+                  <DoorOpen className="size-3.5 text-rose-600" />
+                  {securityAlert.doorName} ({securityAlert.doorId})
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-rose-900 dark:text-rose-300">Método de acceso:</span>
+                <span className="inline-flex items-center gap-1.5 rounded-md bg-white px-2 py-0.5 font-mono font-bold text-rose-900 shadow-sm dark:bg-[#13222b] dark:text-rose-200">
+                  {securityAlert.method === 'FACIAL' ? <ScanFace className="size-3" /> : <CreditCard className="size-3" />}
+                  {securityAlert.method}
+                </span>
+              </div>
+
+              {securityAlert.uid && securityAlert.uid !== 'ALERTA' && (
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-rose-900 dark:text-rose-300">Código UID de tarjeta:</span>
+                  <code className="rounded bg-white px-2 py-0.5 font-mono font-bold text-rose-900 shadow-sm dark:bg-[#13222b] dark:text-rose-200">
+                    {securityAlert.uid}
+                  </code>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-rose-900 dark:text-rose-300">Persona / Identidad:</span>
+                <span className="font-bold text-rose-950 dark:text-rose-100">{securityAlert.personName}</span>
+              </div>
+
+              <div className="border-t border-rose-200/80 pt-2.5 dark:border-rose-900/40">
+                <span className="font-semibold text-rose-900 dark:text-rose-300">Motivo del bloqueo:</span>
+                <p className="mt-0.5 text-xs font-bold text-rose-800 dark:text-rose-200">
+                  {securityAlert.reason}
+                </p>
+              </div>
+            </div>
+
+            {/* Botones de acción rápida */}
+            <div className="mt-5 flex flex-wrap items-center justify-end gap-2.5">
+              {securityAlert.uid && securityAlert.uid !== 'ALERTA' && !securityAlert.uid.startsWith('FACE-') && (
+                <Link
+                  href="/admin/personas"
+                  onClick={() => setSecurityAlert(null)}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-[#087f7b] bg-[#087f7b]/10 px-3.5 py-2 text-xs font-semibold text-[#087f7b] transition hover:bg-[#087f7b]/20 dark:border-[#2dd4bf] dark:text-[#2dd4bf]"
+                >
+                  <UserPlus className="size-3.5" />
+                  Asignar tarjeta en Personas
+                </Link>
+              )}
+              <button
+                type="button"
+                onClick={() => setSecurityAlert(null)}
+                className="rounded-xl bg-rose-600 px-4 py-2 text-xs font-bold text-white shadow-md shadow-rose-600/30 transition hover:bg-rose-700"
+              >
+                Entendido / Descartar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Notificación en vivo flotante de acceso físico */}
+      {liveNotification && (
+        <div
+          role="alert"
+          className={`flex items-center justify-between gap-3 rounded-2xl border p-4 shadow-lg transition-all ${
+            liveNotification.allowed
+              ? 'border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-500/40 dark:bg-emerald-950/70 dark:text-emerald-200'
+              : 'border-rose-300 bg-rose-50 text-rose-900 dark:border-rose-500/40 dark:bg-rose-950/70 dark:text-rose-200'
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            <div
+              className={`flex size-10 shrink-0 items-center justify-center rounded-xl text-white ${
+                liveNotification.allowed ? 'bg-emerald-600' : 'bg-rose-600'
+              }`}
+            >
+              {liveNotification.allowed ? <CheckCircle2 className="size-6" /> : <ShieldX className="size-6" />}
+            </div>
+            <div>
+              <p className="text-sm font-bold flex items-center gap-2">
+                {liveNotification.title}
+                <span className="font-mono text-xs font-normal opacity-80">({liveNotification.time})</span>
+              </p>
+              <p className="text-xs opacity-90">{liveNotification.detail}</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setLiveNotification(null)}
+            className="rounded-lg p-1.5 opacity-70 hover:opacity-100 font-bold"
+            aria-label="Cerrar notificación"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* Encabezado */}
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#087f7b] dark:text-[#2dd4bf]">
-            Supervisión · control físico
+            Supervisión · Control de Acceso Físico
           </p>
           <h1 className="mt-1 text-3xl font-semibold tracking-tight text-[#102d3b] dark:text-[#e6f0f2]">
-            Monitoreo de accesos multizona
+            Monitoreo de esclusas y accesos
           </h1>
           <p className="mt-1.5 max-w-2xl text-sm text-[#718995] dark:text-[#94adb8]">
-            Planos 2D en vivo de esclusas RFID, ocupación por sala y bitácora unificada de eventos.
+            Planos 2D en vivo de esclusas, estado de la Entrada Principal y bitácora unificada conectada a lectores IoT y cámaras.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            type="button"
+            onClick={() => setSoundEnabled((prev) => !prev)}
+            title={soundEnabled ? 'Silenciar alertas sonoras' : 'Activar alertas sonoras'}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-[#dce8eb] bg-white px-3 py-1.5 text-xs font-semibold text-[#29434e] transition hover:bg-[#f4f9f8] dark:border-[#233a47] dark:bg-[#101e26] dark:text-[#e6f0f2]"
+          >
+            {soundEnabled ? <Volume2 className="size-3.5 text-[#087f7b]" /> : <VolumeX className="size-3.5 text-slate-400" />}
+            {soundEnabled ? 'Sonido activo' : 'Silenciado'}
+          </button>
+
           <span
             className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${
               realtimeStatus === 'connected'
@@ -406,7 +720,7 @@ export function AccessZoneMonitor() {
         <MiniStat label="Personas dentro" value={summaryLoading ? '—' : String(summary?.current_occupancy ?? 0)} accent="teal" />
       </section>
 
-      {/* Simulador temporal aislado por bandera de entorno */}
+      {/* Simulador de acceso */}
       {process.env.NEXT_PUBLIC_ENABLE_ACCESS_SIMULATOR !== 'false' && rooms.length > 0 && (
         <AccessSimulatorPanel rooms={rooms} onSimulationEvent={triggerZoneAnimation} />
       )}
@@ -417,7 +731,7 @@ export function AccessZoneMonitor() {
         </div>
       )}
 
-      {/* Planos 2D dinámicos por cada Cleanroom */}
+      {/* Planos 2D dinámicos por cada Cleanroom con identificación explícita de Entrada Principal */}
       {summaryLoading ? (
         <div className="flex min-h-48 items-center justify-center gap-2 rounded-2xl border border-[#e5edf0] bg-white text-sm text-[#718995] dark:border-[#1e3340] dark:bg-[#101e26] dark:text-[#94adb8]">
           <LoaderCircle className="size-4 animate-spin" />
@@ -429,19 +743,29 @@ export function AccessZoneMonitor() {
             const anim = zoneStates[room.id] ?? DEFAULT_ANIM
             const accentHex = roomIndex % 2 === 0 ? '#087f7b' : '#4f46e5'
             const accentBright = roomIndex % 2 === 0 ? '#2dd4bf' : '#818cf8'
-            const roomLogs = accesses.filter((evt) => evt.cleanroom_id === room.id).slice(0, 4)
+
+            // Room specific door identification
+            const doorIdCode = room.door_id ?? (room.id === 1 ? 'entrada-principal' : `puerta-${room.code.toLowerCase()}`)
+            const doorDisplayName = room.door_name ?? (room.id === 1 ? 'Entrada Principal' : `Puerta ${room.name}`)
+
+            // Filter recent logs for this room
+            const roomLogs = accesses
+              .filter((evt) => evt.cleanroom_id === room.id || (room.id === 1 && evt.door_id === 'entrada-principal'))
+              .slice(0, 4)
 
             const tempMetric = room.metrics?.temperature
             const humMetric = room.metrics?.humidity
             const pmMetric = room.metrics?.pm25
             const pressMetric = room.metrics?.pressure
 
+            const isDenied = anim.phase === 'deny' || anim.phase === 'lockout'
+
             const ledColor =
               anim.phase === 'grant'
                 ? '#10b981'
                 : anim.phase === 'exit'
                   ? '#38bdf8'
-                  : anim.phase === 'deny' || anim.phase === 'lockout'
+                  : isDenied
                     ? '#f43f5e'
                     : anim.phase === 'anomaly'
                       ? '#f59e0b'
@@ -452,8 +776,8 @@ export function AccessZoneMonitor() {
                 ? 'border-emerald-300 bg-emerald-50/70 dark:border-emerald-500/50 dark:bg-emerald-950/40'
                 : anim.phase === 'exit'
                   ? 'border-sky-300 bg-sky-50/70 dark:border-sky-500/50 dark:bg-sky-950/40'
-                  : anim.phase === 'deny' || anim.phase === 'lockout'
-                    ? 'border-rose-300 bg-rose-50/70 dark:border-rose-500/50 dark:bg-rose-950/40'
+                  : isDenied
+                    ? 'border-rose-400 bg-rose-50 dark:border-rose-500 dark:bg-rose-950/60'
                     : anim.phase === 'anomaly'
                       ? 'border-amber-300 bg-amber-50/70 dark:border-amber-500/50 dark:bg-amber-950/40'
                       : 'border-[#dce8eb] bg-[#f7fbfa] dark:border-[#1e3340] dark:bg-[#13222b]'
@@ -461,9 +785,14 @@ export function AccessZoneMonitor() {
             return (
               <article
                 key={room.id}
-                className="flex flex-col justify-between overflow-hidden rounded-2xl border border-[#e5edf0] bg-white shadow-[0_8px_24px_rgba(18,49,66,0.04)] dark:border-[#1e3340] dark:bg-[#101e26]"
+                className={`flex flex-col justify-between overflow-hidden rounded-2xl border transition-all ${
+                  isDenied
+                    ? 'border-rose-400 shadow-[0_8px_30px_rgba(244,63,94,0.15)] ring-2 ring-rose-500/20'
+                    : 'border-[#e5edf0] bg-white shadow-[0_8px_24px_rgba(18,49,66,0.04)] dark:border-[#1e3340] dark:bg-[#101e26]'
+                }`}
               >
                 <div>
+                  {/* Encabezado del Cuarto y Puerta */}
                   <div className="flex items-center justify-between border-b border-[#edf2f3] px-5 py-4 dark:border-[#1e3340]">
                     <div>
                       <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -473,11 +802,13 @@ export function AccessZoneMonitor() {
                         <span className="rounded-md bg-[#f2f7f7] px-2 py-0.5 font-semibold text-[#29434e] dark:bg-[#15242e] dark:text-[#d7e6ea]">
                           {room.iso_class}
                         </span>
-                        <span className="font-mono text-[#82969d] dark:text-[#94adb8]">
-                          {room.device_code ?? 'Sin lector'}
+                        {/* Identificación explícita de la puerta */}
+                        <span className="inline-flex items-center gap-1 rounded-md bg-[#e6f4f3] px-2 py-0.5 font-semibold text-[#087f7b] dark:bg-[#13313b] dark:text-[#2dd4bf]">
+                          <DoorOpen className="size-3" />
+                          Puerta: {doorDisplayName}
                         </span>
                       </div>
-                      <h2 className="mt-1 text-lg font-semibold text-[#163542] dark:text-[#e6f0f2]">
+                      <h2 className="mt-1.5 text-lg font-bold text-[#163542] dark:text-[#e6f0f2]">
                         {room.name}
                       </h2>
                     </div>
@@ -497,7 +828,7 @@ export function AccessZoneMonitor() {
                         viewBox="0 0 400 320"
                         className="h-auto w-full"
                         role="img"
-                        aria-label={`Plano 2D de esclusa ${room.code}`}
+                        aria-label={`Plano 2D de esclusa ${room.code} - ${doorDisplayName}`}
                       >
                         <defs>
                           <g id={`person-icon-${room.id}`}>
@@ -519,9 +850,9 @@ export function AccessZoneMonitor() {
                         />
                         <text
                           x="22"
-                          y="30"
+                          y="28"
                           className="fill-[#29434e] dark:fill-[#94a3b8]"
-                          fontSize="11"
+                          fontSize="10"
                           fontWeight="700"
                         >
                           CUARTO LIMPIO {room.iso_class} · {room.code}
@@ -563,34 +894,69 @@ export function AccessZoneMonitor() {
                           x="22"
                           y="298"
                           className="fill-[#58727c] dark:fill-[#64748b]"
-                          fontSize="11"
+                          fontSize="10"
                         >
-                          Pasillo / vestidor (área gris)
+                          Pasillo de vestidor · Área gris
                         </text>
 
                         {/* Muros y puerta corrediza */}
-                        <rect x="10" y="150" width="150" height="12" className="fill-[#94a9b1] dark:fill-[#334155]" />
-                        <rect x="240" y="150" width="150" height="12" className="fill-[#94a9b1] dark:fill-[#334155]" />
-                        <g className={anim.doorOpen ? 'airlock-open' : ''}>
-                          <rect
-                            className="airlock-door-l"
-                            x="160"
-                            y="152"
-                            width="40"
-                            height="8"
-                            fill="#38bdf8"
-                            opacity="0.75"
-                          />
-                          <rect
-                            className="airlock-door-r"
-                            x="200"
-                            y="152"
-                            width="40"
-                            height="8"
-                            fill="#38bdf8"
-                            opacity="0.75"
-                          />
+                        <rect x="10" y="150" width="145" height="12" className="fill-[#94a9b1] dark:fill-[#334155]" />
+                        <rect x="245" y="150" width="145" height="12" className="fill-[#94a9b1] dark:fill-[#334155]" />
+
+                        {/* Indicador de nombre de puerta física */}
+                        <g transform="translate(148, 134)">
+                          <rect width="104" height="14" rx="3" fill="#0f172a" opacity="0.85" />
+                          <text x="52" y="10" textAnchor="middle" fill="#38bdf8" fontSize="8" fontWeight="700" fontFamily="monospace">
+                            PUERTA: {doorIdCode}
+                          </text>
                         </g>
+
+                        {/* Puertas corredizas o alerta de bloqueo */}
+                        {isDenied ? (
+                          <g>
+                            <rect
+                              x="145"
+                              y="150"
+                              width="110"
+                              height="12"
+                              rx="2"
+                              fill="#f43f5e"
+                              className="animate-pulse"
+                            />
+                            <text
+                              x="200"
+                              y="159"
+                              textAnchor="middle"
+                              fill="#ffffff"
+                              fontSize="8"
+                              fontWeight="800"
+                              fontFamily="sans-serif"
+                            >
+                              ¡BLOQUEADA / DENEGADO!
+                            </text>
+                          </g>
+                        ) : (
+                          <g className={anim.doorOpen ? 'airlock-open' : ''}>
+                            <rect
+                              className="airlock-door-l"
+                              x="155"
+                              y="152"
+                              width="45"
+                              height="8"
+                              fill="#38bdf8"
+                              opacity="0.8"
+                            />
+                            <rect
+                              className="airlock-door-r"
+                              x="200"
+                              y="152"
+                              width="45"
+                              height="8"
+                              fill="#38bdf8"
+                              opacity="0.8"
+                            />
+                          </g>
+                        )}
                         <rect x="170" y="164" width="60" height="4" rx="2" fill={ledColor} />
 
                         {/* Lector de salida */}
@@ -622,13 +988,13 @@ export function AccessZoneMonitor() {
                             x="26"
                             y="15"
                             className="fill-[#58727c] dark:fill-[#94a3b8]"
-                            fontSize="9"
+                            fontSize="8.5"
                           >
                             Salida
                           </text>
                         </g>
 
-                        {/* Lector de entrada */}
+                        {/* Lector de entrada vinculado a puerta */}
                         <g transform="translate(252,176)">
                           {anim.reader === 'entry' && anim.scanning && (
                             <circle
@@ -637,7 +1003,7 @@ export function AccessZoneMonitor() {
                               cy="11"
                               r="7"
                               fill="none"
-                              stroke={accentBright}
+                              stroke={isDenied ? '#f43f5e' : accentBright}
                               strokeWidth="2"
                             />
                           )}
@@ -653,7 +1019,7 @@ export function AccessZoneMonitor() {
                             r="4"
                             fill={
                               anim.reader === 'entry'
-                                ? anim.phase === 'deny' || anim.phase === 'lockout'
+                                ? isDenied
                                   ? '#f43f5e'
                                   : '#10b981'
                                 : '#64748b'
@@ -662,10 +1028,10 @@ export function AccessZoneMonitor() {
                           <text
                             x="26"
                             y="15"
-                            className="fill-[#58727c] dark:fill-[#94a3b8]"
-                            fontSize="9"
+                            className="fill-[#087f7b] font-bold dark:fill-[#2dd4bf]"
+                            fontSize="8.5"
                           >
-                            Entrada
+                            {doorIdCode}
                           </text>
                         </g>
 
@@ -684,6 +1050,7 @@ export function AccessZoneMonitor() {
                       </svg>
                     </div>
 
+                    {/* Estado del lector y métricas ambientales */}
                     <div className="flex flex-col gap-3 p-4">
                       <div className={`flex min-h-[120px] flex-col justify-center rounded-2xl border p-3.5 transition ${statusBorder}`}>
                         <div className="flex items-center gap-2">
@@ -700,7 +1067,7 @@ export function AccessZoneMonitor() {
                           ) : (
                             <DoorOpen className="size-4 shrink-0 text-[#087f7b] dark:text-[#2dd4bf]" />
                           )}
-                          <p className="text-sm font-semibold text-[#163542] dark:text-[#e6f0f2]">
+                          <p className="text-sm font-bold text-[#163542] dark:text-[#e6f0f2]">
                             {anim.statusTitle}
                           </p>
                         </div>
@@ -719,11 +1086,11 @@ export function AccessZoneMonitor() {
                   </div>
                 </div>
 
-                {/* Historial reciente de la zona */}
+                {/* Historial reciente de la zona con identificación de persona y puerta */}
                 <div className="border-t border-[#edf2f3] bg-[#f8fbfb] p-4 dark:border-[#1e3340] dark:bg-[#0d1820]">
                   <div className="mb-2.5 flex items-center justify-between">
                     <h3 className="text-[11px] font-bold uppercase tracking-wider text-[#718995] dark:text-[#94adb8]">
-                      Historial reciente · {room.code}
+                      Historial reciente · {doorDisplayName} ({room.code})
                     </h3>
                     <span className="font-mono text-[11px] text-[#087f7b] dark:text-[#2dd4bf]">
                       {roomLogs.length} eventos
@@ -732,27 +1099,44 @@ export function AccessZoneMonitor() {
 
                   {roomLogs.length === 0 ? (
                     <p className="text-xs text-[#82969d] dark:text-[#94adb8]">
-                      Aún no hay eventos registrados para esta zona.
+                      Aún no hay eventos registrados para esta puerta.
                     </p>
                   ) : (
                     <div className="grid gap-2 sm:grid-cols-2">
                       {roomLogs.map((evt) => {
-                        const who = evt.user_id
-                          ? (peopleById.get(evt.user_id) ?? `Usuario #${evt.user_id}`)
-                          : 'No identificado'
+                        const who = resolvePersonName(evt)
                         const allowed = evt.result === 'ALLOWED'
+                        const isFacial = evt.event_type === 'FACIAL'
+                        const friendlyReason = evt.denial_reason ? (DENIAL_LABELS[evt.denial_reason] ?? evt.denial_reason) : ''
+
                         return (
                           <div
                             key={evt.id}
-                            className="flex items-center justify-between gap-2 rounded-xl border border-[#e5edf0] bg-white px-3 py-2 text-xs dark:border-[#1e3340] dark:bg-[#101e26]"
+                            className={`flex items-center justify-between gap-2 rounded-xl border p-2.5 text-xs transition ${
+                              allowed
+                                ? 'border-[#e5edf0] bg-white dark:border-[#1e3340] dark:bg-[#101e26]'
+                                : 'border-rose-200 bg-rose-50/50 dark:border-rose-900/40 dark:bg-rose-950/30'
+                            }`}
                           >
                             <div className="min-w-0">
-                              <p className="truncate font-semibold text-[#163542] dark:text-[#e6f0f2]">
-                                {who}
-                              </p>
-                              <p className="truncate text-[11px] text-[#718995] dark:text-[#94adb8]">
+                              <div className="flex items-center gap-1.5">
+                                <span
+                                  className={`rounded px-1.5 py-0.2 font-mono text-[9px] font-bold ${
+                                    isFacial
+                                      ? 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300'
+                                      : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                                  }`}
+                                >
+                                  {isFacial ? 'FACIAL' : 'RFID'}
+                                </span>
+                                <p className="truncate font-semibold text-[#163542] dark:text-[#e6f0f2]">
+                                  {who}
+                                </p>
+                              </div>
+                              <p className="truncate text-[11px] text-[#718995] dark:text-[#94adb8] mt-0.5">
                                 {evt.direction === 'EXIT' ? 'Salida' : 'Entrada'}
-                                {evt.denial_reason ? ` · ${DENIAL_LABELS[evt.denial_reason] ?? evt.denial_reason}` : ''}
+                                {evt.rfid_uid ? ` · ${evt.rfid_uid}` : ''}
+                                {friendlyReason ? ` · ${friendlyReason}` : ''}
                               </p>
                             </div>
                             <div className="shrink-0 text-right">
@@ -781,7 +1165,7 @@ export function AccessZoneMonitor() {
         </section>
       )}
 
-      {/* Bitácora unificada filtrable */}
+      {/* Bitácora unificada de accesos con Puerta y Persona */}
       <section className="overflow-hidden rounded-2xl border border-[#e5edf0] bg-white shadow-[0_8px_24px_rgba(18,49,66,0.04)] dark:border-[#1e3340] dark:bg-[#101e26]">
         <div className="flex flex-col gap-3 border-b border-[#edf2f3] p-5 dark:border-[#1e3340] lg:flex-row lg:items-center lg:justify-between">
           <div>
@@ -789,7 +1173,7 @@ export function AccessZoneMonitor() {
               Bitácora unificada de accesos
             </h2>
             <p className="mt-0.5 text-xs text-[#82969d] dark:text-[#94adb8]">
-              Historial filtrado en tiempo real desde PostgreSQL
+              Registros en tiempo real sincronizados desde lectores IoT, terminales RFID y reconocimiento facial
             </p>
           </div>
 
@@ -800,7 +1184,7 @@ export function AccessZoneMonitor() {
                 type="text"
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder="Buscar persona o motivo…"
+                placeholder="Buscar persona, UID o puerta…"
                 className="rounded-xl border border-[#dce8eb] bg-[#f9fcfc] py-2 pr-3 pl-8 text-xs text-[#163542] outline-none focus:border-[#087f7b] dark:border-[#233a47] dark:bg-[#0d1820] dark:text-[#e6f0f2]"
               />
             </label>
@@ -818,7 +1202,7 @@ export function AccessZoneMonitor() {
               <option value="ALL">Todas las salas</option>
               {rooms.map((room) => (
                 <option key={room.id} value={String(room.id)}>
-                  {room.code}
+                  {room.code} ({room.id === 1 ? 'Entrada Principal' : room.name})
                 </option>
               ))}
             </select>
@@ -830,8 +1214,8 @@ export function AccessZoneMonitor() {
               className="rounded-xl border border-[#dce8eb] bg-[#f9fcfc] px-2.5 py-2 text-xs text-[#29434e] outline-none focus:border-[#087f7b] dark:border-[#233a47] dark:bg-[#0d1820] dark:text-[#e6f0f2]"
             >
               <option value="ALL">Todos los resultados</option>
-              <option value="ALLOWED">ALLOWED</option>
-              <option value="DENIED">DENIED</option>
+              <option value="ALLOWED">Permitidos (ALLOWED)</option>
+              <option value="DENIED">Denegados (DENIED)</option>
             </select>
 
             <select
@@ -862,20 +1246,22 @@ export function AccessZoneMonitor() {
               <thead className="border-b border-[#edf2f3] bg-[#f8fbfb] text-[11px] font-semibold uppercase tracking-wider text-[#718995] dark:border-[#1e3340] dark:bg-[#0d1820] dark:text-[#94adb8]">
                 <tr>
                   <th className="px-4 py-3">Fecha y hora</th>
-                  <th className="px-4 py-3">Sala</th>
+                  <th className="px-4 py-3">Método</th>
+                  <th className="px-4 py-3">Puerta / Esclusa</th>
+                  <th className="px-4 py-3">Persona / Tarjeta</th>
                   <th className="px-4 py-3">Sentido</th>
-                  <th className="px-4 py-3">Persona</th>
                   <th className="px-4 py-3">Resultado</th>
                   <th className="px-4 py-3">Motivo</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#edf2f3] dark:divide-[#1e3340]">
-                {filteredAccesses.slice(0, 40).map((evt) => {
+                {filteredAccesses.slice(0, 50).map((evt) => {
                   const room = roomById.get(evt.cleanroom_id)
-                  const personName = evt.user_id
-                    ? (peopleById.get(evt.user_id) ?? `Usuario #${evt.user_id}`)
-                    : 'No identificado'
+                  const personName = resolvePersonName(evt)
                   const isAllowed = evt.result === 'ALLOWED'
+                  const isFacial = evt.event_type === 'FACIAL'
+                  const doorCode = String(evt.door_id ?? (evt.cleanroom_id === 1 ? 'entrada-principal' : 'puerta'))
+                  const friendlyReason = evt.denial_reason ? (DENIAL_LABELS[evt.denial_reason] ?? evt.denial_reason) : ''
 
                   return (
                     <tr
@@ -885,8 +1271,40 @@ export function AccessZoneMonitor() {
                       <td className="px-4 py-3 font-mono text-[#58727c] dark:text-[#94adb8]">
                         {formatDateTime(evt.occurred_at)}
                       </td>
-                      <td className="px-4 py-3 font-semibold text-[#163542] dark:text-[#e6f0f2]">
-                        {room ? `${room.code}` : `Cuarto #${evt.cleanroom_id}`}
+                      <td className="px-4 py-3">
+                        {isFacial ? (
+                          <span className="inline-flex items-center gap-1 rounded-md bg-purple-50 px-2 py-0.5 text-[10px] font-bold text-purple-700 dark:bg-purple-950/40 dark:text-purple-300">
+                            <ScanFace className="size-3" />
+                            FACIAL
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 rounded-md bg-[#eff8f7] px-2 py-0.5 text-[10px] font-bold text-[#087f7b] dark:bg-[#13313b] dark:text-[#5eead4]">
+                            <CreditCard className="size-3" />
+                            RFID
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-col">
+                          <span className="font-semibold text-[#163542] dark:text-[#e6f0f2]">
+                            {doorCode === 'entrada-principal' ? 'Entrada Principal' : doorCode}
+                          </span>
+                          <span className="font-mono text-[10px] text-[#82969d] dark:text-[#94adb8]">
+                            {room ? room.code : `Sala #${evt.cleanroom_id}`} · {doorCode}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-col">
+                          <span className="font-medium text-[#29434e] dark:text-[#d7e6ea]">
+                            {personName}
+                          </span>
+                          {evt.rfid_uid && (
+                            <span className="font-mono text-[10px] text-[#82969d] dark:text-[#94adb8]">
+                              UID: {evt.rfid_uid}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-4 py-3">
                         <span
@@ -898,9 +1316,6 @@ export function AccessZoneMonitor() {
                         >
                           {evt.direction === 'EXIT' ? 'SALIDA' : 'ENTRADA'}
                         </span>
-                      </td>
-                      <td className="px-4 py-3 font-medium text-[#29434e] dark:text-[#d7e6ea]">
-                        {personName}
                       </td>
                       <td className="px-4 py-3">
                         <span
@@ -914,9 +1329,11 @@ export function AccessZoneMonitor() {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-[#58727c] dark:text-[#94adb8]">
-                        {evt.denial_reason
-                          ? `${DENIAL_LABELS[evt.denial_reason] ?? evt.denial_reason} (${evt.denial_reason})`
-                          : '—'}
+                        {friendlyReason ? (
+                          <span>{friendlyReason}</span>
+                        ) : (
+                          '—'
+                        )}
                       </td>
                     </tr>
                   )

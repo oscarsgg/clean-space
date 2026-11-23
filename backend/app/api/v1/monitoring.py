@@ -100,6 +100,7 @@ def access_events(
         .offset((page - 1) * size)
         .limit(size)
     )
+<<<<<<< HEAD
     room_ids = accessible_room_ids(user)
     if room_ids is not None:
         query = query.where(AccessEvent.cleanroom_id.in_(room_ids)) if room_ids else query.where(False)
@@ -107,6 +108,28 @@ def access_events(
         ensure_room_access(user, cleanroom_id)
         query = query.where(AccessEvent.cleanroom_id == cleanroom_id)
     return output(db.scalars(query).all())
+=======
+    events = db.scalars(query).all()
+    results = []
+    for ev in events:
+        out = output(ev)
+        if not out.get("door_id"):
+            out["door_id"] = "entrada-principal"
+        if not out.get("person_name"):
+            if ev.user_id:
+                u = db.get(User, ev.user_id)
+                if u:
+                    out["person_name"] = u.full_name
+            elif getattr(ev, "employee_id", None):
+                from app.models.employee import Employee
+                emp = db.get(Employee, ev.employee_id)
+                if emp:
+                    out["person_name"] = f"{emp.firstName} {emp.lastName}"
+            elif getattr(ev, "rfid_uid", None):
+                out["person_name"] = f"Tarjeta {ev.rfid_uid}"
+        results.append(out)
+    return results
+>>>>>>> 5d87d37 (Conexion con backend, nuevos endpoints y eliminacion de datos estaticos)
 
 
 @router.get("/avisos")
