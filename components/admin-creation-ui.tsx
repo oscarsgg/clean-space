@@ -9,10 +9,10 @@ export const creationLabelClass = 'flex min-w-0 flex-col gap-2 text-sm font-semi
 
 export function CreationLayout({ eyebrow = 'Administración · nuevo registro', title, description, backHref, backLabel = 'Volver al listado', children }: { eyebrow?: string; title: string; description: string; backHref: string; backLabel?: string; children: ReactNode }) {
   return <div className="mx-auto flex w-full min-w-0 flex-col gap-6 pb-8">
-    <header className="relative overflow-hidden rounded-3xl border border-[#d8e7e5] bg-[linear-gradient(120deg,#eaf6f3_0%,#f7fbfa_58%,#f0f6f8_100%)] px-5 py-6 sm:px-8 sm:py-8">
-      <div className="relative z-10 max-w-4xl"><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#087f7b]">{eyebrow}</p><h1 className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-[#102d3b] sm:text-4xl">{title}</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-[#5f7880] sm:text-base">{description}</p>
-        <Link href={backHref} className="mt-5 inline-flex min-h-10 items-center gap-2 rounded-xl border border-[#d1e0df] bg-white/80 px-3.5 text-sm font-semibold text-[#36515b] transition hover:bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#087f7b]"><ArrowLeft className="size-4" />{backLabel}</Link>
-      </div><div aria-hidden="true" className="absolute -right-10 -top-24 size-72 rounded-full border-[36px] border-white/35" />
+    <header className="creation-page-header relative overflow-hidden rounded-3xl border border-[#d8e7e5] bg-[linear-gradient(120deg,#eaf6f3_0%,#f7fbfa_58%,#f0f6f8_100%)] px-5 py-6 sm:px-8 sm:py-8">
+      <div className="relative z-10 max-w-4xl"><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#087f7b]">{eyebrow}</p><h1 className="creation-page-title mt-2 text-3xl font-semibold tracking-[-0.04em] text-[#102d3b] sm:text-4xl">{title}</h1><p className="creation-page-description mt-2 max-w-2xl text-sm leading-6 text-[#5f7880] sm:text-base">{description}</p>
+        <Link href={backHref} className="creation-page-back mt-5 inline-flex min-h-10 items-center gap-2 rounded-xl border border-[#d1e0df] bg-white/80 px-3.5 text-sm font-semibold text-[#36515b] transition hover:bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#087f7b]"><ArrowLeft className="size-4" />{backLabel}</Link>
+      </div><div aria-hidden="true" className="creation-page-ornament absolute -right-10 -top-24 size-72 rounded-full border-[36px] border-white/35" />
     </header>
     <div className="grid min-w-0 gap-5 2xl:grid-cols-[minmax(0,1fr)_minmax(18rem,0.34fr)] 2xl:items-start">{children}</div>
   </div>
@@ -26,7 +26,7 @@ export function CreationCard({ title, description, icon, children, className = '
 }
 
 export function CreationAside({ title, children }: { title: string; children: ReactNode }) {
-  return <aside className="min-w-0 rounded-2xl border border-[#dce7e8] bg-[#f8fbfa] p-5 sm:p-6 2xl:sticky 2xl:top-6"><p className="text-xs font-bold uppercase tracking-[0.13em] text-[#087f7b]">{title}</p><div className="mt-4 space-y-4 text-sm leading-6 text-[#617a82]">{children}</div></aside>
+  return <aside className="creation-page-aside min-w-0 rounded-2xl border border-[#dce7e8] bg-[#f8fbfa] p-5 sm:p-6 2xl:sticky 2xl:top-6"><p className="text-xs font-bold uppercase tracking-[0.13em] text-[#087f7b]">{title}</p><div className="mt-4 space-y-4 text-sm leading-6 text-[#617a82]">{children}</div></aside>
 }
 
 export function CreationNotice({ tone = 'error', title, children }: { tone?: 'error' | 'success' | 'info'; title: string; children: ReactNode }) {

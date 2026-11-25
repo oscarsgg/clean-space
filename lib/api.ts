@@ -466,7 +466,7 @@ async function requestRaw(path: string, init: RequestInit = {}, retry = true): P
   if (isPublicAuthRequest) {
     if (!response.ok) {
       const detail = await response.text()
-      throw new Error(response.status === 401 ? 'Correo o contraseña incorrectos.' : userFacingApiError(response.status, detail))
+      throw new Error(response.status === 401 ? 'El correo o la contraseña no coinciden. Verifica tus datos e inténtalo de nuevo.' : userFacingApiError(response.status, detail))
     }
     return response
   }

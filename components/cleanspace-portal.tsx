@@ -287,6 +287,7 @@ export default function CleanSpacePortal({ role = 'admin' }: { role?: 'admin' | 
 
   useEffect(() => {
     setMobileMenuOpen(false)
+    window.scrollTo(0, 0)
   }, [pathname])
 
   const handleLogout = async () => {
@@ -301,7 +302,7 @@ export default function CleanSpacePortal({ role = 'admin' }: { role?: 'admin' | 
 
   return (
     <div className={`min-h-screen transition-colors ${role === 'admin' ? 'admin-console bg-background text-foreground' : 'bg-[#f6f9f9] text-[#163542] dark:bg-[#0b141a] dark:text-[#e6f0f2]'}`}>
-      <aside className={`fixed inset-y-0 left-0 z-20 hidden flex-col overflow-y-auto px-4 py-5 dark:bg-[#09151c] lg:flex ${role === 'admin' ? 'w-[280px] border-r border-white/[0.06] bg-[#102c3a]' : 'w-[252px] bg-[#102c3a]'}`}>
+      <aside aria-label="Barra lateral" className={`sidebar-scrollbar fixed inset-y-0 left-0 z-20 hidden min-h-0 flex-col overflow-x-hidden overflow-y-auto overscroll-contain px-4 py-5 dark:bg-[#09151c] lg:flex ${role === 'admin' ? 'w-[280px] border-r border-white/[0.06] bg-[#102c3a]' : 'w-[252px] bg-[#102c3a]'}`}>
         <div className="px-3">
           <Logo />
         </div>
@@ -309,7 +310,7 @@ export default function CleanSpacePortal({ role = 'admin' }: { role?: 'admin' | 
           {role === 'admin' ? 'Administración' : 'Supervisión'}
         </p>
         <PortalNavigation role={role} items={items} pathname={pathname} />
-        <div className="mt-auto pt-4">
+        <div className="mt-auto shrink-0 pt-4">
           <div className={`rounded-2xl border border-white/10 p-3 ${role === 'admin' ? 'bg-white/[0.04] sm:p-3.5' : 'bg-white/5'}`}>
             <div className="flex items-center gap-3">
               <div className="flex size-9 items-center justify-center rounded-full bg-[#d8efed] text-xs font-bold text-[#087f7b]">
@@ -332,14 +333,14 @@ export default function CleanSpacePortal({ role = 'admin' }: { role?: 'admin' | 
       </aside>
 
       {mobileMenuOpen && (
-        <div className="fixed inset-0 z-40 flex lg:hidden">
+        <div className="fixed inset-0 z-40 flex min-h-0 lg:hidden">
           <button
             type="button"
             aria-label="Cerrar menú"
             onClick={() => setMobileMenuOpen(false)}
             className="fixed inset-0 bg-[#102c3a]/50"
           />
-          <aside className={`relative z-10 flex flex-col bg-[#102c3a] px-4 py-5 dark:bg-[#09151c] ${role === 'admin' ? 'w-[min(20rem,88vw)]' : 'w-64'}`}>
+          <aside aria-label="Menú de navegación" className={`sidebar-scrollbar relative z-10 flex h-dvh min-h-0 flex-col overflow-x-hidden overflow-y-auto overscroll-contain bg-[#102c3a] px-4 py-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] dark:bg-[#09151c] ${role === 'admin' ? 'w-[min(20rem,88vw)]' : 'w-[min(16rem,88vw)]'}`}>
             <div className="flex items-center justify-between px-2">
               <Logo />
               <button
@@ -363,8 +364,8 @@ export default function CleanSpacePortal({ role = 'admin' }: { role?: 'admin' | 
         </div>
       )}
 
-      <div className={role === 'admin' ? 'lg:pl-[280px]' : 'lg:pl-[252px]'}>
-        <header className={`sticky top-0 z-10 flex h-[72px] items-center justify-between border-b bg-white/95 px-5 backdrop-blur sm:px-8 dark:bg-[#101e26]/95 ${role === 'admin' ? 'border-border shadow-[0_6px_24px_rgba(16,44,58,0.035)]' : 'border-[#e5edf0] shadow-[0_4px_18px_rgba(18,49,66,0.04)] dark:border-[#1e3340]'}`}>
+      <div className={`min-w-0 ${role === 'admin' ? 'lg:pl-[280px]' : 'lg:pl-[252px]'}`}>
+        <header className={`sticky top-0 z-30 flex h-[72px] items-center justify-between border-b bg-white px-5 sm:px-8 dark:bg-[#101e26] ${role === 'admin' ? 'border-border shadow-[0_6px_24px_rgba(16,44,58,0.035)]' : 'border-[#e5edf0] shadow-[0_4px_18px_rgba(18,49,66,0.04)] dark:border-[#1e3340]'}`}>
           <div className="flex items-center gap-3">
             <button
               type="button"
