@@ -173,6 +173,56 @@ def require_admin_key(x_admin_key: str = Header(default="")):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Clave administrativa inválida")
 
 
+def require_admin_or_jwt(
+    x_admin_key: str = Header(default=""),
+    authorization: str = Header(default=""),
+    db: Session = Depends(get_db),
+):
+    """Allow an administrator session or a configured administrative API key."""
+    if authorization.lower().startswith("bearer "):
+        payload = decode_token(authorization.split(" ", 1)[1].strip(), "access")
+        try:
+            user = db.get(User, int(payload["sub"])) if payload else None
+        except (KeyError, TypeError, ValueError):
+            user = None
+        if user and user.status == "ACTIVE" and any(role.code == "ADMINISTRADOR" for role in user.roles):
+            return user
+
+    expected_key = settings.cleanspace_admin_key
+    if expected_key and x_admin_key and hmac.compare_digest(x_admin_key, expected_key):
+        return True
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Se requiere sesión de administrador")
+
+
+def require_device_or_jwt(
+    authorization: str = Header(default=""),
+    db: Session = Depends(get_db),
+):
+    """Authenticate device JWTs or an active administrator/supervisor session."""
+    if not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Se requiere sesión o token de dispositivo")
+    token = authorization.split(" ", 1)[1].strip()
+    payload = decode_token(token, "access")
+    if payload:
+        try:
+            user = db.get(User, int(payload["sub"]))
+        except (KeyError, TypeError, ValueError):
+            user = None
+        if user and user.status == "ACTIVE" and any(
+            role.code in {"ADMINISTRADOR", "SUPERVISOR"} for role in user.roles
+        ):
+            return ("user", user)
+    payload = decode_token(token, "device")
+    if payload:
+        try:
+            device = db.get(Device, int(payload["sub"]))
+        except (KeyError, TypeError, ValueError):
+            device = None
+        if device and device.status == "ACTIVE":
+            return ("device", device)
+    raise HTTPException(status_code=401, detail="Credenciales inválidas")
+
+
 def require_device_key(x_device_key: str = Header(default="")):
     expected_key = settings.cleanspace_device_key
     if not expected_key:

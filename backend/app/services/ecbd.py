@@ -34,26 +34,30 @@ def accessible_rooms(db: Session, user: User) -> list[Cleanroom]:
 
 def compute_room_occupancy(
     db: Session, cleanroom_id: int, window_hours: int = 24
-) -> dict[int, AccessEvent]:
+) -> dict[str, AccessEvent]:
     since = utcnow() - timedelta(hours=window_hours)
     events = db.scalars(
         select(AccessEvent)
         .where(
             AccessEvent.cleanroom_id == cleanroom_id,
             AccessEvent.result == "ALLOWED",
-            AccessEvent.user_id.is_not(None),
             AccessEvent.occurred_at >= since,
         )
         .order_by(AccessEvent.occurred_at.asc(), AccessEvent.id.asc())
     ).all()
-    inside: dict[int, AccessEvent] = {}
+    inside: dict[str, AccessEvent] = {}
     for ev in events:
-        if ev.user_id is None:
+        key = (
+            f"user:{ev.user_id}" if ev.user_id is not None else
+            f"employee:{ev.employee_id}" if ev.employee_id is not None else
+            f"uid:{ev.rfid_uid}" if ev.rfid_uid else None
+        )
+        if key is None:
             continue
         if ev.direction == "ENTRY":
-            inside[ev.user_id] = ev
+            inside[key] = ev
         elif ev.direction == "EXIT":
-            inside.pop(ev.user_id, None)
+            inside.pop(key, None)
     return inside
 
 
@@ -159,22 +163,25 @@ def get_supervisor_summary(
     for room in rooms:
         inside_map = compute_room_occupancy(db, room.id)
         occupants: list[dict[str, Any]] = []
-        for uid, ev in inside_map.items():
-            occupant_user = db.get(User, uid)
+        for _, ev in inside_map.items():
+            occupant_user = db.get(User, ev.user_id) if ev.user_id is not None else None
+            employee = None
+            if ev.employee_id is not None:
+                from app.models.employee import Employee
+                employee = db.get(Employee, ev.employee_id)
             card = db.get(RfidCard, ev.rfid_card_id) if ev.rfid_card_id else None
             if not card and occupant_user:
-                card = db.scalar(
-                    select(RfidCard)
-                    .where(RfidCard.user_id == occupant_user.id)
-                    .order_by(RfidCard.id.asc())
-                )
-            uid_label = (
-                card.label if (card and card.label) else (f"RFID-{card.id}" if card else "Autorizado")
+                card = db.scalar(select(RfidCard).where(RfidCard.user_id == occupant_user.id).order_by(RfidCard.id.asc()))
+            person_name = (
+                occupant_user.full_name if occupant_user else
+                f"{employee.firstName} {employee.lastName}" if employee else
+                ev.person_name or f"Tarjeta {ev.rfid_uid}" if ev.rfid_uid else "Autorizado"
             )
+            uid_label = card.label if card and card.label else ev.rfid_uid or (f"RFID-{card.id}" if card else "Autorizado")
             occupants.append(
                 {
-                    "user_id": uid,
-                    "full_name": occupant_user.full_name if occupant_user else f"Usuario #{uid}",
+                    "user_id": ev.user_id or ev.employee_id or 0,
+                    "full_name": person_name,
                     "uid_label": uid_label,
                 }
             )

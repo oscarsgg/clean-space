@@ -172,6 +172,7 @@ def process_access_validation(
     reason, result, user_id, card_id = None, "DENIED", None, card.id if card else None
     now_dt = utcnow()
 
+    person = None
     if not card:
         reason = "CARD_NOT_FOUND"
     elif card.status != "ACTIVE" or (card.expires_at and as_utc(card.expires_at) < now_dt):
@@ -221,11 +222,16 @@ def process_access_validation(
             elapsed = (as_utc(now_dt) - as_utc(last_entry.occurred_at)).total_seconds()
             stay_minutes = round(max(0.0, elapsed / 60.0), 2)
 
+    door_id = "entrada-principal" if device.cleanroom_id == 1 else f"puerta-{room_code.lower()}"
+    person_label = person.full_name if person else f"Tarjeta {uid}"
     event = AccessEvent(
         user_id=user_id,
         cleanroom_id=device.cleanroom_id,
         rfid_card_id=card_id,
         source_device_id=device.id,
+        door_id=door_id,
+        rfid_uid=uid,
+        person_name=person_label,
         result=result,
         denial_reason=reason,
         direction=normalized_direction,
@@ -236,9 +242,9 @@ def process_access_validation(
 
     if result == "ALLOWED":
         if normalized_direction == "ENTRY" and user_id is not None:
-            inside_map[user_id] = event
+            inside_map[f"user:{user_id}"] = event
         elif normalized_direction == "EXIT" and user_id is not None:
-            inside_map.pop(user_id, None)
+            inside_map.pop(f"user:{user_id}", None)
         new_occupancy = len(inside_map)
         stay_note = f" (permanencia {stay_minutes} min)" if stay_minutes is not None else ""
         decision = AgentDecisionLog(

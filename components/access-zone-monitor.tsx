@@ -88,6 +88,10 @@ const DENIAL_LABELS: Record<string, string> = {
   CARD_NOT_FOUND: 'Tarjeta no registrada',
   CARD_INACTIVE: 'Tarjeta inactiva o vencida',
   ROOM_FULL: 'Aforo máximo alcanzado',
+  unknown_tag: 'Tarjeta RFID no registrada',
+  inactive_tag: 'Tarjeta RFID inactiva',
+  inactive_employee: 'Personal inactivo',
+  no_permission_for_door: 'Sin autorización para esta puerta',
 }
 
 const ROOMS_PER_PAGE = 6
@@ -99,13 +103,13 @@ export function AccessZoneMonitor() {
     error: summaryError,
     isLoading: summaryLoading,
     mutate: mutateSummary,
-  } = useSWR<SupervisorSummary>('supervisor-summary', () => api.supervisorSummary())
+  } = useSWR<SupervisorSummary>('supervisor-summary', () => api.supervisorSummary(), { refreshInterval: 3000 })
 
   const {
     data: accessesRaw,
     isLoading: accessesLoading,
     mutate: mutateAccesses,
-  } = useSWR<ApiAccessEvent[]>('access-events', () => api.accesses('?page=1&size=500'))
+  } = useSWR<ApiAccessEvent[]>('access-events', () => api.accesses('?page=1&size=500'), { refreshInterval: 3000 })
 
   const { data: peopleRaw } = useSWR('people-lookup', () => api.people())
 
@@ -367,7 +371,7 @@ export function AccessZoneMonitor() {
       if (resultFilter !== 'ALL' && item.result.toUpperCase() !== resultFilter) return false
       if (directionFilter !== 'ALL' && item.direction.toUpperCase() !== directionFilter) return false
       if (!term) return true
-      const personName = item.user_id ? (peopleById.get(item.user_id) ?? `Usuario #${item.user_id}`) : 'No identificado'
+      const personName = item.person_name ?? (item.user_id ? (peopleById.get(item.user_id) ?? `Usuario #${item.user_id}`) : item.rfid_uid ? `Tarjeta ${item.rfid_uid}` : 'No identificado')
       const roomCode = roomById.get(item.cleanroom_id)?.code ?? `Cuarto #${item.cleanroom_id}`
       const hay = `${personName} ${roomCode} ${item.denial_reason ?? ''} ${item.direction} ${item.result}`.toLowerCase()
       return hay.includes(term)
@@ -896,9 +900,9 @@ export function AccessZoneMonitor() {
               <tbody className="divide-y divide-[#edf2f3] dark:divide-[#1e3340]">
                 {visibleAccesses.map((evt) => {
                   const room = roomById.get(evt.cleanroom_id)
-                  const personName = evt.user_id
+                  const personName = evt.person_name ?? (evt.user_id
                     ? (peopleById.get(evt.user_id) ?? `Usuario #${evt.user_id}`)
-                    : 'No identificado'
+                    : evt.rfid_uid ? `Tarjeta ${evt.rfid_uid}` : 'No identificado')
                   const isAllowed = evt.result === 'ALLOWED'
 
                   return (
@@ -910,7 +914,8 @@ export function AccessZoneMonitor() {
                         {formatDateTime(evt.occurred_at)}
                       </td>
                       <td className="px-4 py-3 font-semibold text-[#163542] dark:text-[#e6f0f2]">
-                        {room ? `${room.code}` : `Cuarto #${evt.cleanroom_id}`}
+                        <span>{room ? `${room.code}` : `Cuarto #${evt.cleanroom_id}`}</span>
+                        {evt.door_id && <span className="mt-0.5 block font-mono text-[10px] font-normal text-[#82969d]">{evt.door_id}</span>}
                       </td>
                       <td className="px-4 py-3">
                         <span

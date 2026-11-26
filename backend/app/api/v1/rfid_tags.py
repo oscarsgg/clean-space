@@ -5,12 +5,36 @@ from sqlalchemy.orm import Session
 from app.core.rfid import normalize_rfid_uid
 from app.core.dependencies import require
 from app.db.database import get_db
+from app.models import AccessEvent
 from app.models.employee import Employee
 from app.models.rfid_tag import RfidTag
 from app.schemas.rfid_tag import RfidTagCreate, RfidTagRead, RfidTagUpdate
 
 
 router = APIRouter(prefix="/rfid-tags", tags=["RFID tags"])
+
+
+@router.get("/last-scanned")
+def last_scanned_card(session: Session = Depends(get_db), user=Depends(require("ADMINISTRADOR", "SUPERVISOR"))):
+    event = session.scalar(
+        select(AccessEvent)
+        .where(
+            AccessEvent.rfid_uid.is_not(None),
+            AccessEvent.event_type.in_(("RFID", "RFID_IOT", "RFID_OFFLINE")),
+        )
+        .order_by(AccessEvent.occurred_at.desc(), AccessEvent.id.desc())
+        .limit(1)
+    )
+    if event is None:
+        return {"uid": None, "door_id": None, "scanned_at": None, "authorized": None, "reason": None, "person_name": None}
+    return {
+        "uid": event.rfid_uid,
+        "door_id": event.door_id,
+        "scanned_at": event.occurred_at.isoformat(),
+        "authorized": event.result == "ALLOWED",
+        "reason": event.denial_reason or ("allowed" if event.result == "ALLOWED" else None),
+        "person_name": event.person_name,
+    }
 
 
 @router.post("/", response_model=RfidTagRead, status_code=status.HTTP_201_CREATED)

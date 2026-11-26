@@ -46,6 +46,14 @@ python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
 Documentación interactiva: http://127.0.0.1:8000/docs. Health: http://127.0.0.1:8000/health.
 
+## RFID, puertas y verificación facial
+
+Después de instalar dependencias, aplica las migraciones con `alembic upgrade head` desde `backend`. Asigna empleados, tags y permisos desde las rutas `/api/v1/employees/`, `/api/v1/rfid-tags/` y `/api/v1/permissions/`. Un dispositivo usa `/api/v1/device/sync`, `/api/v1/device/access` y `/api/v1/device/events` con `X-Device-Key`; cada evento de acceso también queda en `access_events` para el monitor supervisor. Las salidas (`direction: "EXIT"`) se permiten como egreso libre.
+
+Los perfiles faciales solo se registran con sesión ADMINISTRADOR en `/api/v1/facial/enroll`. La verificación acepta una sesión ADMINISTRADOR/SUPERVISOR o un JWT de dispositivo emitido por `/api/v1/iot/auth`; los tokens de dispositivo quedan limitados al cuarto asignado. La verificación exige un empleado activo, una plantilla facial, un tag RFID activo vinculado y permiso activo para esa puerta. Se almacenan vectores biométricos, no la imagen capturada.
+
+Cuando el rostro coincide, el backend registra el evento y crea un comando `open_door` para un dispositivo activo. Esto solo confirma que la orden quedó en cola: el repositorio no incluye firmware de lector/actuador que la recoja y envíe el acuse de apertura. Para accionar una cerradura real, el firmware debe consultar `/api/v1/iot/comandos/pendientes`, activar el relé de forma segura y enviar el acuse a `/api/v1/iot/comandos/{id}/ack`. La interfaz no afirma que la puerta se abrió hasta que exista esa confirmación.
+
 ## Documentación automática de endpoints
 
 FastAPI genera la documentación OpenAPI/Swagger automáticamente a partir de los decoradores y modelos Pydantic. Esto permite mantener todos los endpoints sincronizados sin duplicar la especificación a mano.

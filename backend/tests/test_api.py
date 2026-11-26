@@ -82,6 +82,9 @@ def test_existing_and_transferred_routes_are_registered():
         "/api/v1/device/sync",
         "/api/v1/device/access",
         "/api/v1/device/events",
+        "/api/v1/facial/enroll",
+        "/api/v1/facial/verify",
+        "/api/v1/facial/biometrics/{employee_id}",
     }
     assert expected_paths <= paths.keys()
 
@@ -201,10 +204,23 @@ def test_access_logs_permissions_and_device_endpoints():
     })
     assert tag_response.status_code == 201
 
+    from app.models import Cleanroom
+    db = SessionLocal()
+    room = Cleanroom(
+        code=f"RFID-{uuid4().hex[:8]}", name="Sala RFID Test", location="Lab",
+        capacity=8, iso_class="ISO 7",
+    )
+    db.add(room)
+    db.commit()
+    db.refresh(room)
+    test_room_id = room.id
+    door_id = f"puerta-{room.code.lower()}"
+    db.close()
+
     permission_response = client.post(
         "/api/v1/permissions/",
         headers=admin_headers,
-        json={"rfid_uid": uid, "door_id": "DOOR-1"},
+        json={"rfid_uid": uid, "door_id": door_id},
     )
     assert permission_response.status_code == 201
     permission_id = permission_response.json()["id"]
@@ -214,7 +230,7 @@ def test_access_logs_permissions_and_device_endpoints():
     assert client.get("/api/v1/permissions/", headers=admin_headers).status_code == 200
     sync_response = client.get(
         "/api/v1/device/sync",
-        params={"door_id": "DOOR-1"},
+        params={"door_id": door_id},
         headers=device_headers,
     )
     assert sync_response.status_code == 200
@@ -223,14 +239,14 @@ def test_access_logs_permissions_and_device_endpoints():
     access_response = client.post(
         "/api/v1/device/access",
         headers=device_headers,
-        json={"uid": uid, "door_id": "DOOR-1"},
+        json={"uid": uid, "door_id": door_id, "cleanroom_id": test_room_id},
     )
     assert access_response.status_code == 200
     assert access_response.json()["authorized"] is True
 
     log_response = client.post("/api/v1/access-logs/", headers=auth_headers, json={
         "rfid_uid": normalized_uid,
-        "render_id": "DOOR-1",
+        "render_id": door_id,
         "access_status": "granted",
     })
     assert log_response.status_code == 201
@@ -241,13 +257,20 @@ def test_access_logs_permissions_and_device_endpoints():
         headers=device_headers,
         json={"events": [{
             "uid": uid,
-            "door_id": "DOOR-1",
+            "door_id": door_id,
             "access_status": "offline_allowed",
             "created_at": "2026-11-08",
+            "cleanroom_id": test_room_id,
         }]},
     )
     assert offline_response.status_code == 202
     assert offline_response.json() == {"accepted": 1}
+
+    access_events = client.get(
+        f"/api/v1/accesos?cleanroom_id={test_room_id}", headers=auth_headers,
+    )
+    assert access_events.status_code == 200
+    assert any(event["rfid_uid"] == normalized_uid for event in access_events.json())
 
     update_response = client.patch(
         f"/api/v1/permissions/{permission_id}",
@@ -262,6 +285,28 @@ def test_access_logs_permissions_and_device_endpoints():
         headers=admin_headers,
     )
     assert delete_response.status_code == 204
+
+
+def test_facial_endpoint_requires_session_and_accepts_room_bound_device_token():
+    fx = _setup_supervisor_fixture()
+    client = TestClient(app)
+    payload = {"door_id": f"puerta-{fx['room_code'].lower()}", "image_base64": "A" * 120}
+
+    assert client.post("/api/v1/facial/verify", json=payload).status_code == 401
+    # The device token authenticates only against its assigned cleanroom; image parsing follows auth.
+    assert client.post("/api/v1/facial/verify", headers=fx["dev_headers"], json=payload).status_code == 400
+    from app.models import Cleanroom
+    db = SessionLocal()
+    other_room = Cleanroom(
+        code=f"OTRA-{uuid4().hex[:8]}", name="Otra sala", location="Lab",
+        capacity=8, iso_class="ISO 7",
+    )
+    db.add(other_room)
+    db.commit()
+    other_door = f"puerta-{other_room.code.lower()}"
+    db.close()
+    other_room_payload = {**payload, "door_id": other_door}
+    assert client.post("/api/v1/facial/verify", headers=fx["dev_headers"], json=other_room_payload).status_code == 403
 
 
 def _ensure_role(db, code: str, name: str) -> Role:

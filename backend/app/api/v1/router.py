@@ -6,6 +6,7 @@ from app.api.v1.analytics import router as analytics_router
 from app.api.v1.auth import router as auth_router
 from app.api.v1.devices import router as devices_router
 from app.api.v1.device_access import router as device_access_router
+from app.api.v1.facial_access import router as facial_router
 from app.api.v1.employees import router as employees_router
 from app.api.v1.access_logs import router as access_logs_router
 from app.api.v1.door_permissions import router as door_permissions_router
@@ -33,3 +34,4 @@ router.include_router(rfid_tags_router)
 router.include_router(access_logs_router)
 router.include_router(door_permissions_router)
 router.include_router(device_access_router)
+router.include_router(facial_router)

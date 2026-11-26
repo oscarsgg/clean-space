@@ -9,10 +9,11 @@ from app.api.v1.iot import telemetry
 from app.core.dependencies import accessible_room_ids, current_user, ensure_room_access, output, require, utcnow
 from app.core.security import create_token
 from app.db.database import get_db
-from app.models import AccessEvent, Alert, Command, Device, SensorReading
+from app.models import AccessEvent, Alert, Cleanroom, Command, Device, Employee, SensorReading, User
 from app.schemas.iot import TelemetryBatch
 from app.schemas.monitoring import CommandIn, ReadingIn
 from app.services.realtime import publish_event
+from app.services.doors import door_id_for_room
 
 
 router = APIRouter(tags=["Monitoring"])
@@ -106,7 +107,26 @@ def access_events(
     if cleanroom_id is not None:
         ensure_room_access(user, cleanroom_id)
         query = query.where(AccessEvent.cleanroom_id == cleanroom_id)
-    return output(db.scalars(query).all())
+    events = db.scalars(query).all()
+    results = []
+    for event in events:
+        record = output(event)
+        if not record.get("door_id"):
+            room = db.get(Cleanroom, event.cleanroom_id)
+            record["door_id"] = door_id_for_room(room) if room else "entrada-principal"
+        if not record.get("person_name"):
+            if event.user_id:
+                person = db.get(User, event.user_id)
+                if person:
+                    record["person_name"] = person.full_name
+            elif event.employee_id:
+                employee = db.get(Employee, event.employee_id)
+                if employee:
+                    record["person_name"] = f"{employee.firstName} {employee.lastName}"
+            elif event.rfid_uid:
+                record["person_name"] = f"Tarjeta {event.rfid_uid}"
+        results.append(record)
+    return results
 
 
 @router.get("/avisos")

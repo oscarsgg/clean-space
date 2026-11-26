@@ -8,6 +8,8 @@ import { api, type ApiPerson, type ApiRoom } from '@/lib/api'
 import { userFacingClientError } from '@/lib/user-facing-errors.mjs'
 import { AdminFilterBar, AdminField, AdminStatusBadge, adminInputClass } from '@/components/admin-ui'
 import { CreateConfirmDialog } from '@/components/admin-creation-ui'
+import { RfidDoorManagement } from '@/components/rfid-door-management'
+import { FacialEnrollment } from '@/components/facial-enrollment'
 
 type Permission = {
   id: number
@@ -162,6 +164,8 @@ export function AccessPermissionManagement({ personId }: { personId?: number }) 
 
   return <div className="flex min-w-0 flex-col gap-6">
     <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div className="min-w-0"><p className="text-xs font-bold uppercase tracking-[0.16em] text-primary">Administración · control de acceso</p><h1 className="mt-1 text-3xl font-semibold tracking-[-0.035em] text-foreground sm:text-[2.15rem]">Permisos por cuarto</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">Asigna a cada persona acceso a un cuarto y define cuándo estará vigente.</p>{personId && <p className="mt-2 inline-flex items-center gap-2 rounded-full bg-accent px-3 py-1.5 text-sm font-medium text-accent-foreground"><UserRound className="size-4" />{selectedPerson?.full_name || selectedPerson?.name || `Persona #${personId}`}</p>}</div>{personId && <Link href="/admin/personas" className="inline-flex min-h-10 w-fit items-center rounded-xl border border-border bg-card px-3.5 text-sm font-semibold text-foreground transition hover:bg-muted">Volver al directorio</Link>}</header>
+
+    {!personId && <><RfidDoorManagement /><FacialEnrollment /></>}
 
     {errorMessage && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200">{errorMessage}</div>}
     {successMessage && <div role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200">{successMessage}</div>}

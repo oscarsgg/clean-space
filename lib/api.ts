@@ -57,6 +57,8 @@ export type SupervisorRoomSummary = {
   id: number
   code: string
   name: string
+  door_id?: string
+  door_name?: string
   iso_class: string
   capacity: number
   current_occupancy: number
@@ -232,6 +234,10 @@ export type AccessPatternCluster = {
 export type ApiAccessEvent = {
   id: number
   user_id: number | null
+  employee_id?: number | null
+  rfid_uid?: string | null
+  door_id?: string | null
+  person_name?: string | null
   cleanroom_id: number
   rfid_card_id: number | null
   source_device_id: number | null
@@ -542,6 +548,17 @@ export const api = {
   createPermission: (data: Record<string, unknown>) => request<unknown>('/permisos', { method: 'POST', body: JSON.stringify(data) }),
   updatePermission: (id: number, data: Record<string, unknown>) => request<unknown>(`/permisos/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   accesses: (params = '') => request<ApiAccessEvent[]>(`/accesos${params}`),
+  lastScannedCard: () => request<{ uid: string | null; door_id: string | null; scanned_at: string | null; authorized: boolean | null; reason: string | null; person_name: string | null }>('/rfid-tags/last-scanned'),
+  employees: () => request<Array<{ id: number; firstName: string; lastName: string; department: string; isActive: boolean }>>('/employees/'),
+  createEmployee: (data: { firstName: string; lastName: string; department: string }) => request<{ id: number; firstName: string; lastName: string; department: string; isActive: boolean }>('/employees/', { method: 'POST', body: JSON.stringify(data) }),
+  createRfidTag: (data: { uid: string; employee_id: number }) => request('/rfid-tags/', { method: 'POST', body: JSON.stringify(data) }),
+  doorPermissions: (doorId?: string) => request<Array<{ id: number; rfid_uid: string; door_id: string; is_active: boolean; created_at: string; employee_id?: number | null; employee_name?: string | null; department?: string | null }>>(`/permissions/${doorId ? `?door_id=${encodeURIComponent(doorId)}` : ''}`),
+  createDoorPermission: (data: { rfid_uid: string; door_id: string; is_active?: boolean; employee_id?: number | null }) => request('/permissions/', { method: 'POST', body: JSON.stringify(data) }),
+  deleteDoorPermission: (id: number) => request<void>(`/permissions/${id}`, { method: 'DELETE' }),
+  facialEnroll: (data: { employee_id: number; image_base64: string; sample_type?: 'full_face' | 'masked_cleanroom' | 'eyes_only' }) => request<{ success: boolean; biometric_id: number; employee_id: number; sample_type: string; is_masked: boolean; detection_confidence: number; message: string }>('/facial/enroll', { method: 'POST', body: JSON.stringify(data) }),
+  facialVerify: (data: { image_base64: string; door_id: string }) => request<{ authorized: boolean; reason: string; employee_id?: number; employee_name?: string; department?: string; confidence_score: number; match_mode: string; low_light_enhanced: boolean; is_masked: boolean; door_id: string; door_unlocked: boolean; command_queued: boolean; command_id?: number; event_id?: number }>('/facial/verify', { method: 'POST', body: JSON.stringify(data) }),
+  facialBiometrics: (employeeId: number) => request<Array<{ id: number; employee_id: number; sample_type: string; is_masked: boolean; is_active: boolean; created_at: string; notes?: string | null }>>(`/facial/biometrics/${employeeId}`),
+  deleteFacialBiometric: (id: number) => request<void>(`/facial/biometrics/${id}`, { method: 'DELETE' }),
   commands: () => request<ApiCommand[]>('/comandos'),
   sendCommand: (data: SendCommandPayload) => request<ApiCommand>('/comandos', { method: 'POST', body: JSON.stringify(data) }),
   simulateAccess: (data: SimulateAccessPayload) => request<SimulateAccessResponse>('/iot/simular-acceso', { method: 'POST', body: JSON.stringify(data) }),

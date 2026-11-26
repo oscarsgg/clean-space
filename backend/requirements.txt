@@ -14,3 +14,4 @@ pytest==8.3.4
 httpx==0.28.1
 numpy
 scikit-learn
+opencv-contrib-python-headless==4.10.0.84

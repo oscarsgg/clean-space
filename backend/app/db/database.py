@@ -26,7 +26,7 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
 def ensure_schema_updates(target_engine=engine):
-    """Safely add new cleanrooms columns on existing PostgreSQL or SQLite databases."""
+    """Safely add columns introduced after initial database creation."""
     inspector = inspect(target_engine)
     if not inspector.has_table("cleanrooms"):
         return
@@ -43,6 +43,22 @@ def ensure_schema_updates(target_engine=engine):
                 conn.execute(text("ALTER TABLE cleanrooms ADD COLUMN capacity INTEGER DEFAULT 8"))
             if "iso_class" not in existing_columns:
                 conn.execute(text("ALTER TABLE cleanrooms ADD COLUMN iso_class VARCHAR(20) DEFAULT 'ISO 7'"))
+
+    inspector = inspect(target_engine)
+    if inspector.has_table("access_events"):
+        existing_columns = {col["name"] for col in inspector.get_columns("access_events")}
+        additions = {
+            "employee_id": "INTEGER",
+            "rfid_uid": "VARCHAR(64)",
+            "door_id": "VARCHAR(100) DEFAULT 'entrada-principal'",
+            "person_name": "VARCHAR(150)",
+        }
+        with target_engine.begin() as conn:
+            for column, sql_type in additions.items():
+                if column not in existing_columns:
+                    conn.execute(text(f"ALTER TABLE access_events ADD COLUMN {column} {sql_type}"))
+            if "door_id" not in existing_columns:
+                conn.execute(text("UPDATE access_events SET door_id = 'entrada-principal' WHERE door_id IS NULL"))
 
     inspector = inspect(target_engine)
     if inspector.has_table("model_results") and inspector.has_table("analytics_runs"):
